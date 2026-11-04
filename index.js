@@ -1,7 +1,8 @@
+import {defaultPromptSettings,fixedMacroSnapshot,updateFixedMacros,migratePromptSettings} from './src/prompts/prompt-settings.js';
+import {createPromptInjection} from './src/platform/prompt-injection.js';
 import {selectGenerationProfile,reconcileProfileSelection} from './src/profiles/profile-selection.js';
 import {parseGenerationBody,generationCandidates,createEggMarkerCache} from './src/profiles/easter-egg-selection.js';
 import {prepareGeneration,sendPrepared} from './src/generation/generation-lifecycle.js';
-import {worldMacros,patchWorldMacros} from './src/resources/world-macros.js';
 import {generationTimeoutSeconds} from './src/generation/generation-timeout.js';
 import {fingerprintKey,runWithQueue,validateQueueURL} from './src/queue/cloud-queue.js';
 import {randomId} from './src/platform/browser-crypto.js';
@@ -47,7 +48,6 @@ import {appendImageVersion,imageVersions,selectImageVersion,markImageVersionsDel
 import {selectVibes,profileVibeEnabled} from './src/vibe/vibe.js';
 import {readVibeFiles,createVibePackage} from './src/vibe/vibe-files.js';
 import {createExtensionUpdater} from './src/platform/updates.js';
-import {createResourceUpdater} from './src/resources/resource-updates.js';
 import {archiveContext,validateArchivePath,archiveImageURL,imageArchiveLocation,rememberImage,archiveItems} from './src/images/image-archives.js';
 import {createProfilePreviews,ensureProfileIds,sampleSignature,SAMPLE_PROMPT} from './src/profiles/profile-previews.js';
 import {downloadImageSelection} from './src/images/downloads.js';
@@ -96,7 +96,9 @@ const cardBindings=new WeakMap();
 let chatObserver,chatRootObserver,observedChat,imageSaves=0;
 let queue=Promise.resolve(), streamActive=false, timer, autoScheduled=false, generationChat=null, settingsHost=null,imageToolsEpoch=0;
 let settingsPopup=null,pendingSettingsConfirm=null,autoSession=null,floatingDispose=()=>{},lastGestureReroll=0;
-const save=()=>ctx().saveSettingsDebounced();
+const promptInjection=createPromptInjection({context:ctx,settings,onError:()=>notices.error('D0 提示词注入失败，请检查宿主兼容性','提示词')});
+const refreshPrompt=()=>{try{promptInjection.update();}catch{}};
+const save=()=>{if(settings.promptConfig)refreshPrompt();return ctx().saveSettingsDebounced();};
 if(generationOptionsMigrated||connectionMigrated||generationModeMigrated)save();
 const enqueue=run=>{const job=queue.then(run);queue=job.catch(()=>{});return job;};
 const persistSettings=()=>persistHostSettings({saveNow:async()=>{const host=await import('../../../../script.js');return host.saveSettings();},source:ctx().eventSource,event:ctx().eventTypes.SETTINGS_UPDATED});
@@ -109,10 +111,10 @@ async function saveGeneratedImage(data,folder,name){
     try{await thumbnails.ensure(url,imageBlob(data));}catch{notices.warning('原图已保存，缩略图未生成，可在图片页重试','喵喵文生图');}
     return url;
 }
-const resourceUpdater=createResourceUpdater({settings,localBase:base,save,onChange:()=>{eggMarkerCache.invalidate();settingsHost?.dispatchEvent(new Event('miao-resources-changed'));},onAvailable:({latest})=>notices.info(`${latest.worldName} 可更新，点此查看`,'喵喵文生图',{escapeHtml:true,timeOut:10000,onclick:()=>openSettings('resources')})});
+
 ensureProfileIds(settings.profiles);
 for(const warning of reconcileProfileSelection(settings))notices.warning(warning,'配置选择');
-const eggMarkerCache=createEggMarkerCache({read:readResourceMacros,key:()=>JSON.stringify([settings.world,wi.world_names])});
+const eggMarkerCache=createEggMarkerCache({read:readResourceMacros,key:()=>settings.promptConfig?.fixed?.彩蛋标签});
 const profilePreviews=createProfilePreviews({profiles:()=>settings.profiles,library:()=>settings.vibeLibrary,prompt:()=>settings.samplePrompt,onQueued:()=>notices.info('例图已加入生图队列','喵喵文生图'),enqueue,generate:requestImage,saveImage:(data,scope)=>saveGeneratedImage(data,scope.folder,`sample-${Date.now()}-${randomId()}`),persist:persistSettings,onChange:()=>settingsHost?.dispatchEvent(new Event('miao-profile-previews')),onError:error=>generationError(error)});
 const directUser=getCurrentUserHandle(),directVault=createKeyVault(directUser);
 const customVault=createKeyVault(JSON.stringify([directUser,'custom-novelai']));
@@ -542,107 +544,28 @@ function observeChat(){
     if(!chatObserver)chatObserver=new MutationObserver(()=>scheduleRender(false));
     observedChat=root;chatObserver.observe(observedChat,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['src','mesid']});
 }
-async function installWorld(file,{targetName,activate=true,existing,preserveMacros=false}={}) {
-    const data=JSON.parse(await file.text());if(!data.entries)throw new Error('世界书需要 entries 字段');
-    const name=targetName||file.name.replace(/\.json$/i,'');
-    const previous=existing??(wi.world_names.includes(name)?await wi.loadWorldInfo(name):{entries:{}});
-    if(!previous)throw Error('无法读取原世界书，请重试');
-    const merged=mergeWorldEntries(previous,data,{preserveMacros});
-    const response=await fetch('/api/worldinfo/edit',{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify({name,data:merged})});
-    if(!response.ok)throw Error(`世界书更新失败：HTTP ${response.status}`);
-    wi.worldInfoCache?.set(name,merged);await wi.updateWorldInfoList();
-    if(!wi.world_names.includes(name))throw new Error('世界书列表刷新失败');
-    if(ctx().eventTypes.WORLDINFO_UPDATED)await ctx().eventSource.emit(ctx().eventTypes.WORLDINFO_UPDATED,name,merged);
-    if(activate&&!wi.selected_world_info.includes(name))wi.onWorldInfoChange({state:'on',silent:'true'},name);
-    settings.world=name;eggMarkerCache.invalidate();save();
+async function savePromptConfig(next){
+    const previous=settings.promptConfig;
+    settings.promptConfig=next;
+    try{promptInjection.update();await persistSettings();eggMarkerCache.invalidate();}
+    catch(error){if(settings.promptConfig===next){settings.promptConfig=previous;try{promptInjection.update();}catch{}}throw error;}
 }
-async function readResourceMacros(){
-    const world=[settings.world,...bundledWorldTargets(wi.world_names,settings.world)].find(name=>name&&wi.world_names.includes(name));
-    if(!world)return {world:'',macros:[]};
-    wi.worldInfoCache?.delete(world);
-    const book=await wi.loadWorldInfo(world);if(!book)throw Error('无法读取插件世界书，请重试');
-    return {world,macros:worldMacros(book)};
-}
+async function readResourceMacros(){return fixedMacroSnapshot(settings.promptConfig);}
 async function saveResourceMacros(snapshot,values){
-    if(resourceInstallPromise)throw Error('资源正在更新，请稍后重新读取酒馆宏');
-    if(!wi.world_names.includes(snapshot.world))throw Error('世界书已更名或删除，请重新读取酒馆宏');
-    wi.worldInfoCache?.delete(snapshot.world);
-    const book=await wi.loadWorldInfo(snapshot.world);if(!book)throw Error('无法读取原世界书，请重试');
-    const next=patchWorldMacros(book,snapshot.macros,values);
-    const response=await hostFetch('/api/worldinfo/edit',{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify({name:snapshot.world,data:next})});
-    if(!response.ok)throw Error(`酒馆宏保存失败：HTTP ${response.status}`);
-    wi.worldInfoCache?.set(snapshot.world,next);eggMarkerCache.invalidate();
-    if(ctx().eventTypes.WORLDINFO_UPDATED)await ctx().eventSource.emit(ctx().eventTypes.WORLDINFO_UPDATED,snapshot.world,next);
-    return {world:snapshot.world,macros:worldMacros(next)};
+    const next=updateFixedMacros(settings.promptConfig,snapshot,values);
+    await savePromptConfig(next);return readResourceMacros();
 }
 async function installRegex(rules) {
     const existing=getScriptsByType(SCRIPT_TYPES.GLOBAL,{allowedOnly:false});
     await saveScriptsByType(mergeRegexRules(existing,rules),SCRIPT_TYPES.GLOBAL);
 }
-async function migrateResourceBindings(oldNames,newName=WORLD_NAME){
-    const c=ctx();
-    for(const character of c.characters||[]){
-        if(!oldNames.includes(character.data?.extensions?.world))continue;
-        const response=await fetch('/api/characters/merge-attributes',{method:'POST',headers:c.getRequestHeaders(),body:JSON.stringify({avatar:character.avatar,data:{extensions:{world:newName}}})});
-        if(!response.ok)throw Error(`世界书绑定更新失败：HTTP ${response.status}`);
-        character.data.extensions.world=newName;
-    }
-    const characterWorld=document.getElementById('character_world');
-    if(characterWorld&&oldNames.includes(characterWorld.value))characterWorld.value=newName;
-    const previousChatWorld=c.chatMetadata?.world_info;
-    const chatChanged=migrateWorldBindings({selected:wi.selected_world_info,worldInfo:wi.world_info,powerUser:c.powerUserSettings,chatMetadata:c.chatMetadata},oldNames,newName);
-    settings.world=newName;
-    settings.worldAliases={...Object.fromEntries(Object.entries(settings.worldAliases||{}).map(([old,next])=>[old,oldNames.includes(next)?newName:next])),...Object.fromEntries(oldNames.map(name=>[name,newName]))};
-    if(chatChanged){
-        try{if(!c.saveMetadata)throw Error('酒馆不支持保存聊天世界书绑定');if(await c.saveMetadata()===false)throw Error('聊天世界书绑定保存失败');}
-        catch(error){c.chatMetadata.world_info=previousChatWorld;throw error;}
-    }
-    await persistSettings();
-}
-async function restoreResourceChatBinding(){
-    const c=ctx(),name=c.chatMetadata?.world_info,next=settings.worldAliases?.[name];
-    if(!next||next===name)return;
-    if(!c.saveMetadata)throw Error('酒馆不支持保存聊天世界书绑定');
-    c.chatMetadata.world_info=next;
-    try{if(await c.saveMetadata()===false)throw Error('聊天世界书绑定保存失败');}
-    catch(error){c.chatMetadata.world_info=name;throw error;}
-}
 let resourceInstallPromise=null;
 function installDefaults(){
-    if(!resourceInstallPromise)resourceInstallPromise=installResourcePack().finally(()=>{resourceInstallPromise=null;resourceUpdater.changed();});
+    if(!resourceInstallPromise)resourceInstallPromise=(async()=>{
+        const response=await checkedFetch('regex-install',new URL('assets/regex.json',base));
+        await installRegex(await response.json());settings.installed=true;await persistSettings();
+    })().finally(()=>resourceInstallPromise=null);
     return resourceInstallPromise;
-}
-async function installResourcePack(){
-    const {manifest,world,rules}=await resourceUpdater.load(),worldName=manifest.worldName;
-    // Validate the entire pack before the first write.
-    mergeWorldEntries({entries:{}},JSON.parse(world));mergeRegexRules([],rules);
-    const targets=bundledWorldTargets(wi.world_names,settings.world,worldName);
-    let existing={entries:{}};
-    for(const name of targets.filter(name=>wi.world_names.includes(name))){
-        const data=await wi.loadWorldInfo(name);if(!data)throw Error('无法读取原世界书，请重试');
-        existing=mergeWorldEntries(existing,data,{preserveMacros:true});
-    }
-    await installWorld(new File([world],worldName+'.json',{type:'application/json'}),{targetName:worldName,existing,preserveMacros:true,activate:!targets.some(name=>wi.world_names.includes(name))});
-    await installRegex(rules);
-    const oldNames=targets.filter(name=>name!==worldName);
-    if(oldNames.length){
-        await migrateResourceBindings(oldNames,worldName);
-        for(const name of oldNames){
-            const response=await fetch('/api/worldinfo/delete',{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify({name})});
-            if(!response.ok)throw Error(`旧版世界书替换失败：HTTP ${response.status}`);
-            wi.worldInfoCache?.delete(name);
-        }
-        await wi.updateWorldInfoList();
-        if(oldNames.some(name=>wi.world_names.includes(name)))throw Error('世界书列表刷新失败');
-        const editor=document.getElementById('world_editor_select');
-        const option=editor&&[...editor.options].find(option=>option.text===worldName);
-        if(option){editor.value=option.value;editor.dispatchEvent(new Event('change',{bubbles:true}));}
-    }
-    settings.world=worldName;
-    const previous={installed:settings.installed,resourceVersion:settings.resourceVersion,resourceRevision:settings.resourceRevision};
-    settings.installed=true;settings.resourceVersion=manifest.version;settings.resourceRevision=manifest.revision;
-    try{await persistSettings();}catch(error){Object.assign(settings,previous);throw error;}
-    save();renderAll();notices.success(`${worldName} 已更新`,'喵喵文生图');
 }
 function resolvedTheme(){return 'host';}
 function applyTheme() {
@@ -978,7 +901,7 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
         confirmCustomVibeOrigin:({generationOrigin,encodeOrigin})=>confirmSettings(`在线编码将使用同一个 API Key。生图站点：${generationOrigin}\n编码站点：${encodeOrigin}\n只有在你信任该编码站点时才继续保存。`,'确认跨站点 Vibe 编码',{confirmLabel:'确认并保存'}),
         removeFavorite:async id=>{if(!await confirmSettings('删除这条收藏？图片文件会保留。','删除收藏'))return false;await favorites.remove(id);return true;},
         collectImage:url=>openSettings('favorites',draftFromImage(url)),buildThumbnails,
-        getResourceStatus:()=>resourceUpdater.snapshot(),checkResources:force=>resourceUpdater.check(force),theme:resolvedTheme,onTheme:applyTheme,onError:errorPopup,
+        theme:resolvedTheme,onTheme:applyTheme,onError:errorPopup,
         confirmDeleteProfiles:profiles=>{const question=el('div'),list=el('ul',undefined,'miao-delete-profile-list');question.append(el('p',`删除选中的 ${profiles.length} 个串？`));for(const profile of profiles)list.append(el('li',profile.name));question.append(list,el('p','只移除配置，保留已保存的例图文件和聊天图片。'));return confirmSettings(question,`删除 ${profiles.length} 个串`);},
         refreshProfilePreview:(profile,options)=>profilePreviews.refresh(profile,{...options,scope:{folder:validateFolder(settings.folder),...generationOptions(settings)}}),getPreviewState:profile=>profilePreviews.state(profile),
         exportPromptFile,restorePromptPreview:async(preview,profile)=>{
@@ -991,7 +914,7 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
         },
         saveKey:async(input,{notify=true}={})=>{await saveCurrentKey({input,vault:directVault,settings,writeServerKey:key=>writeSecret(SECRET_KEYS.NOVEL,key),fingerprint:fingerprintKey,save});if(notify)notices.success(settings.rememberDirectKey?'NAI Key 已保存到酒馆和当前设备，刷新后可继续使用':'NAI Key 已保存，直连 Key 仅在当前页面暂存');},
         saveCustomConnection:async(values,{notify=true}={})=>{if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');await saveCustomConnection({settings,vault:customVault,...values,fingerprint:fingerprintKey,save});if(notify)notices.success('自定义连接已保存');},
-        testImage,installDefaults,installWorld,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange:()=>imagePresentation.refresh(),
+        savePromptConfig,testImage,installDefaults,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange:()=>imagePresentation.refresh(),
         chooseFloatingIcon:selected=>showFloatingIconPicker({parent:settingsPopup.dlg,selected}),
         checkUpdate:force=>updater.check(force),installUpdate:()=>updater.install(),refreshPage:()=>location.reload(),
         listVibes:()=>direct.list(),importVibeFiles,exportVibeFiles,
@@ -1059,8 +982,21 @@ function scheduleRender(automatic=false) {
 async function init() {
     mountMenu();refreshFloating();const c=ctx();save();
     if(c.eventTypes.WORLDINFO_UPDATED)c.eventSource.on(c.eventTypes.WORLDINFO_UPDATED,()=>eggMarkerCache.invalidate());
-    await restoreResourceChatBinding();
-    if(c.eventTypes.CHAT_LOADED)c.eventSource.on(c.eventTypes.CHAT_LOADED,guard(restoreResourceChatBinding));
+    if(!settings.promptConfig){
+        try{
+            const name=[settings.world,...bundledWorldTargets(wi.world_names,settings.world)].find(n=>n&&wi.world_names.includes(n));
+            const book=name?await wi.loadWorldInfo(name):null;
+            if(name&&!book)throw Error('无法读取旧世界书');
+            settings.promptConfig=newInstallation?defaultPromptSettings():migratePromptSettings(book);
+        }catch{
+            settings.promptConfig=defaultPromptSettings('external');settings.promptConfig.migration={status:'failed'};
+            notices.warning('旧提示词迁移失败，已保留外部模式；请检查固定配置后再切换。','提示词');
+        }
+        try{await persistSettings();}catch{settings.promptConfig.mode='external';notices.warning('提示词迁移保存失败，已保留外部模式，请重新保存设置。','提示词');}
+    }
+    refreshPrompt();
+    for(const name of ['CHAT_LOADED','CHAT_CHANGED','GENERATION_AFTER_COMMANDS'])if(c.eventTypes[name])c.eventSource.on(c.eventTypes[name],refreshPrompt);
+
     let migrated=false;for(const message of c.chat)migrated=migrateSwipeImages(message)||migrated;if(migrated)await c.saveChat();
     document.addEventListener('click',event=>{
         if(event.target.closest?.('.miao-image-card>img,.miao-image-tools'))return;
@@ -1094,8 +1030,8 @@ async function init() {
     for(const event of ['SECRET_WRITTEN','SECRET_DELETED','SECRET_ROTATED'])if(c.eventTypes[event])c.eventSource.on(c.eventTypes[event],key=>{if(key===SECRET_KEYS.NOVEL){settings.keyHash='';save();settingsHost?.dispatchEvent(new Event('miao-key-changed'));}});
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applyTheme);
     if(settings.enabled&&!settings.installed)await installDefaults();indexChatImages();renderAll();autoLatest();
-    resourceUpdater.check().catch(()=>{});
-    document.addEventListener('visibilitychange',()=>{if(!document.hidden)resourceUpdater.check().catch(()=>{});});
-    setInterval(()=>{if(!document.hidden)resourceUpdater.check().catch(()=>{});},900000);
+
+
+
 }
 jQuery(()=>guard(init)());
