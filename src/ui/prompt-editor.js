@@ -13,7 +13,7 @@ export function openPromptEditor({parent,settings,key,label,save,onSaved=()=>{}}
     const heading=node('h3','编辑 · '+label),fields=node('div',undefined,'miao-prompt-editor-fields'),status=node('p','','miao-muted'),actions=node('div',undefined,'miao-actions'),inputs={};
     for(const slot of Object.keys(initial)){
         const title=tree?({prefix:'开头',body:'正文',suffix:'结尾'}[slot]):'模块原文';
-        const wrap=node('label',undefined,'miao-prompt-editor-field'),input=node('textarea');input.value=initial[slot];input.setAttribute('aria-label',title);input.spellcheck=false;wrap.append(node('span',title),input);fields.append(wrap);inputs[slot]=input;
+        const wrap=node('label',undefined,'miao-prompt-editor-field'),input=node('textarea');input.value=initial[slot];input.setAttribute('aria-label',title);input.spellcheck=false;input.wrap='soft';wrap.append(node('span',title),input);fields.append(wrap);inputs[slot]=input;
     }
     const first=Object.values(inputs)[0],previous=document.activeElement,blocked=[...parent.children].map(n=>[n,n.inert]);for(const [n] of blocked)n.inert=true;
     let busy=false,finished=false;

@@ -2294,11 +2294,20 @@ img[data-miao-export-state=loading] {visibility: hidden;}
 .miao-prompt-module>strong{flex:1;min-width:100px;overflow-wrap:anywhere}
 .miao-prompt-module button{min-height:36px;min-width:36px}
 .miao-prompt-module>.miao-field{flex-basis:100%}
-.miao-tree-children{margin-left:18px;padding-left:12px;border-left:1px solid var(--mi-line)}
-.miao-tree-children[hidden]{display:none}
-.miao-tree-status{font-size:.8em;flex-basis:100%;order:5;padding-left:4px}
-.miao-tree-expand,.miao-tree-edit{padding:4px;flex:0 0 36px}
-.miao-prompt-switch{display:inline-flex;position:relative;flex:0 0 42px;min-height:36px;align-items:center;cursor:pointer}
+.miao-prompt-tree .miao-tree-node{min-width:0;max-width:100%;box-sizing:border-box;border:1px solid var(--mi-line);border-radius:var(--mi-radius,10px);padding:10px;margin-top:10px;background:var(--mi-bg)}
+.miao-tree-node[data-depth="2"]{background:var(--mi-soft)}
+.miao-tree-node[data-depth="3"]{padding:8px}
+.miao-tree-node>.miao-prompt-module{display:grid;grid-template-columns:minmax(0,1fr) auto;border:0;padding:0;gap:6px}
+.miao-tree-title{display:flex;align-items:center;gap:4px;min-width:0}
+.miao-tree-title strong{min-width:0;overflow-wrap:anywhere}
+.miao-tree-actions{display:grid;grid-template-columns:44px 44px;align-items:center;gap:4px}
+.miao-tree-actions>.miao-tree-edit{grid-column:1}
+.miao-tree-actions>.miao-prompt-switch{grid-column:2}
+.miao-tree-children{min-width:0}
+.miao-prompt-tree [hidden]{display:none!important}
+.miao-tree-status{font-size:.8em;grid-column:1/-1;overflow-wrap:anywhere}
+.miao-tree-expand,.miao-tree-edit{padding:4px;min-width:44px!important;min-height:44px!important;flex:0 0 44px}
+.miao-prompt-switch{display:inline-flex;position:relative;flex:0 0 42px;min-height:44px;align-items:center;cursor:pointer}
 .miao-prompt-switch input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
 .miao-prompt-switch-track{width:42px;height:24px;border-radius:24px;background:var(--mi-line);border:1px solid var(--mi-muted);box-sizing:border-box;pointer-events:none;transition:background .15s}
 .miao-prompt-switch-track::after{content:'';display:block;width:18px;height:18px;margin:2px;border-radius:50%;background:var(--mi-ink);transition:transform .15s}
@@ -2309,9 +2318,9 @@ img[data-miao-export-state=loading] {visibility: hidden;}
 .miao-prompt-editor{position:absolute;inset:0;z-index:20;background:var(--mi-bg,var(--SmartThemeBlurTintColor));color:var(--mi-ink,var(--SmartThemeBodyColor));height:min(100%,var(--miao-editor-height,100dvh));display:flex;padding:16px;box-sizing:border-box}
 .miao-prompt-editor-card{display:flex;flex-direction:column;gap:10px;width:100%;min-height:0;overflow:hidden}
 .miao-prompt-editor-card h3,.miao-prompt-editor-card p{margin:0;flex-shrink:0}
-.miao-prompt-editor-fields{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px}
-.miao-prompt-editor-field{display:flex;flex:1;flex-direction:column;gap:6px;min-height:130px}
-.miao-prompt-editor-field textarea{flex:1;min-height:100px;width:100%;box-sizing:border-box;resize:none;font-family:monospace;line-height:1.5;white-space:pre;overflow:auto;background:var(--mi-field);color:inherit}
+.miao-prompt-editor-fields{min-width:0;max-width:100%;flex:1;min-height:0;overflow-x:hidden;overflow-y:auto;display:flex;flex-direction:column;gap:12px}
+.miao-prompt-editor-field{min-width:0;max-width:100%;display:flex;flex:1;flex-direction:column;gap:6px;min-height:130px}
+.miao-prompt-editor-field textarea{flex:1;min-height:100px;width:100%;box-sizing:border-box;resize:none;font-family:monospace;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;overflow-x:hidden;overflow-y:auto;min-width:0;max-width:100%;background:var(--mi-field);color:inherit}
 .miao-prompt-editor-card>.miao-actions{flex-shrink:0;background:var(--mi-bg,var(--SmartThemeBlurTintColor));padding:8px 0}
-@media(max-width:680px){.miao-prompt-editor{padding:10px}.miao-prompt-module{gap:6px}.miao-tree-children{margin-left:8px;padding-left:8px}.miao-prompt-editor-field textarea{font-size:16px}.miao-prompt-editor-card .miao-button{min-height:44px}}
+@media(max-width:680px){.miao-prompt-editor{padding:10px}.miao-prompt-module{gap:6px}.miao-prompt-tree .miao-tree-node{padding:6px}.miao-tree-actions{gap:0}.miao-prompt-editor-field textarea{font-size:16px}.miao-prompt-editor-card .miao-button{min-height:44px}}
 @media(prefers-reduced-motion:reduce){.miao-prompt-switch-track,.miao-prompt-switch-track::after{transition:none}}

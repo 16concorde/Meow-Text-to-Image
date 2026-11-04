@@ -49,7 +49,7 @@ test('all parent/egg/check/orientation combinations obey effective state without
   assert.equal(text.includes(treeById.egg.slots.body),egg);assert.equal(text.includes('<easter_egg>'),egg&&c.enabledById['egg.description']);
   assert.equal(text.includes(treeById['selfcheck.egg'].slots.body),egg&&check);
   assert.equal(text.includes(treeById.selfcheck.slots.prefix),check);assert.equal(text.includes('\n\n</imgthink>\n\n'),check);
-  assert.equal(text.includes(treeById['output.selfcheck'].slots.body),check);assert.equal(text.includes(treeById['selfcheck.nsfw'].slots.body),check&&c.enabledById['selfcheck.nsfw']);
+  assert.equal(text.includes(treeById['output.selfcheck'].slots.body),check);assert.equal(text.includes(treeById['selfcheck.nsfw'].slots.body),check&&c.enabledById.nsfw&&c.enabledById['selfcheck.nsfw']);
   assert.equal(text.includes(treeById['nsfw.rules'].slots.body),c.enabledById.nsfw);assert.equal(text.includes(treeById['output.subtitle'].slots.body),c.enabledById['output.subtitle']);
   for(const choice of ['BG','BL','GL','INTERSEX'])assert.equal(text.includes(treeById['orientation.'+choice.toLowerCase()].slots.body),c.enabledById.nsfw&&orientation===choice);
   if(c.enabledById.nsfw&&check)assert.ok(text.indexOf('15.NSFW:')<text.indexOf('## 自检'));
@@ -94,4 +94,15 @@ test('D0 uses a single synchronous ID, clears external/disabled and can roll bac
  const original=settings.promptConfig,text=injection.update();settings.promptConfig=withTreeText(original,'composition',{body:'edited'});assert.ok(injection.update().includes('edited'));settings.promptConfig=original;assert.equal(injection.update(),text);
  settings.promptConfig={...original,mode:'external'};assert.equal(injection.update(),'');settings.promptConfig=original;settings.enabled=false;assert.equal(injection.update(),'');
  assert.ok(calls.every(call=>call[0]===PROMPT_ID&&JSON.stringify(call.slice(2))==='[1,0,false,0]'));
+});
+
+test('NSFW check preserves saved state and text behind conditions; registry rejects dependency cycles',()=>{
+ const n=treeById['selfcheck.nsfw'];assert.equal(n.displayId,'04.NSFW');assert.equal(n.label,'色图额外检查');assert.deepEqual(n.condition,['nsfw']);assert.equal(n.parentId,'selfcheck');assert.equal(n.toggleable,true);
+ let c=withTreeText(defaultPromptSettings(),'selfcheck.nsfw',{body:'SAVED_NSFW_CHECK'});assert.equal(effectiveEnabled(c,n.nodeId),false);
+ c=withTreeEnabled(c,'nsfw',true);assert.equal(effectiveEnabled(c,n.nodeId),true);assert.equal(composePrompt(c).split('SAVED_NSFW_CHECK').length,2);
+ for(const parent of ['nsfw','selfcheck']){const off=withTreeEnabled(c,parent,false);assert.equal(effectiveEnabled(off,n.nodeId),false);assert.equal(savedEnabled(off,n.nodeId),true);assert.equal(treeText(off,n.nodeId),'SAVED_NSFW_CHECK');assert.equal(effectiveEnabled(withTreeEnabled(off,parent,true),n.nodeId),true);}
+ c=withTreeEnabled(c,n.nodeId,false);assert.equal(effectiveEnabled(c,n.nodeId),false);assert.equal(treeText(c,n.nodeId),'SAVED_NSFW_CHECK');
+ const invalid=structuredClone(promptTree);invalid.find(n=>n.nodeId==='nsfw').condition=['missing'];assert.throws(()=>validatePromptTree(invalid));
+ for(const condition of [['selfcheck.nsfw'],['nsfw']]){const cyclic=structuredClone(promptTree);cyclic.find(n=>n.nodeId==='nsfw').condition=condition;assert.throws(()=>validatePromptTree(cyclic),/循环/);}
+ assert.equal(validatePromptTree(structuredClone(promptTree)),true);
 });

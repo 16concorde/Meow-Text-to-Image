@@ -35,13 +35,19 @@ test('actual extension startup, fixed prompt tree, drafts, rollback, modes and n
  assert.deepEqual(await page.locator('.miao-prompt-tree > .miao-tree-node').evaluateAll(nodes=>nodes.map(n=>n.dataset.displayId)),['00','01','02','03','04','05']);
  const branch=id=>page.locator(`[data-node-id="${id}"]`),button=(name)=>page.getByRole('button',{name,exact:true});
  const before=await injection(),saves=await page.evaluate(()=>window.preview.settingsSaves);
- for(const name of ['任务与参数','Tag 结构与补充规则','NSFW 扩展','自检','输出要求'])await button('展开'+name).click();
+ for(const name of ['任务与参数','Tag 结构与补充规则','自检','输出要求'])await button('展开'+name).click();
  await button('展开彩蛋任务').click();
  assert.ok(await branch('egg').locator(':scope > .miao-tree-children > [data-node-id="egg.description"]').isVisible());
  assert.equal(await branch('selfcheck').locator(':scope > .miao-tree-children > [data-node-id="selfcheck.egg"]').count(),1);
  assert.equal(await branch('selfcheck.item10').locator('[data-node-id="selfcheck.egg"]').count(),0);
  await button('收起Tag 结构与补充规则').click();await button('展开Tag 结构与补充规则').click();assert.ok(await branch('egg.description').isVisible());
  assert.equal(await injection(),before);assert.equal(await page.evaluate(()=>window.preview.settingsSaves),saves);
+ assert.equal(await branch('composition').locator('.miao-tree-expand').count(),0);assert.equal(await branch('tags').locator(':scope > .miao-prompt-module .miao-tree-edit').count(),0);
+ for(const id of ['task','composition','tags','egg','nsfw','selfcheck','orientation','output.format']){
+  assert.ok(await branch(id).evaluate(n=>parseFloat(getComputedStyle(n).borderTopWidth)>0));
+  assert.ok(await branch(id).evaluate(n=>{const title=n.querySelector(':scope > .miao-prompt-module .miao-tree-title'),arrow=title.querySelector('button'),edit=n.querySelector(':scope > .miao-prompt-module .miao-tree-edit'),sw=n.querySelector(':scope > .miao-prompt-module .miao-prompt-switch');return (!arrow||!!(title.querySelector('strong').compareDocumentPosition(arrow)&Node.DOCUMENT_POSITION_FOLLOWING))&&(!edit||!sw||!!(edit.compareDocumentPosition(sw)&Node.DOCUMENT_POSITION_FOLLOWING));}));
+ }
+
  assert.equal(await page.getByText('最终 D0 提示词预览',{exact:true}).count(),0);
  assert.equal(await page.locator('.miao-prompt-tree [draggable="true"],.miao-prompt-tree [contenteditable]').count(),0);
  assert.equal(await page.locator('.miao-prompt-tree').getByRole('button',{name:/新增|删除|拖拽|改名|排序/}).count(),0);
@@ -58,20 +64,46 @@ test('actual extension startup, fixed prompt tree, drafts, rollback, modes and n
  await button('编辑画面组成').click();await editor.getByRole('button',{name:'恢复默认',exact:true}).click();assert.equal(await text.inputValue(),base);await editor.getByRole('button',{name:'保存',exact:true}).click();await editor.waitFor({state:'detached'});assert.equal(await page.evaluate(()=>window.preview.settings.promptConfig.textOverridesById.composition),undefined);
  await button('编辑画面组成').click();await text.fill(base+'\nRETRY_DRAFT');await page.evaluate(()=>window.preview.failSettingsSave=true);const oldInjection=await injection();await editor.getByRole('button',{name:'保存',exact:true}).click();await editor.getByText('保存失败，请重试',{exact:true}).waitFor();assert.ok((await text.inputValue()).endsWith('RETRY_DRAFT'));assert.equal(await injection(),oldInjection);await page.evaluate(()=>window.preview.failSettingsSave=false);await editor.getByRole('button',{name:'保存',exact:true}).click();await editor.waitFor({state:'detached'});
  const sw=name=>page.getByRole('switch',{name:'启用'+name,exact:true});
- await sw('彩蛋解析').uncheck();assert.ok(!(await injection()).includes('<easter_egg>'));await sw('彩蛋任务').uncheck();assert.ok(!(await injection()).includes('是否记得在彩蛋标记之后输出彩蛋'));await sw('彩蛋任务').check();assert.equal(await sw('彩蛋解析').isChecked(),false);await sw('彩蛋解析').check();
- await sw('自检').uncheck();assert.ok(!(await injection()).includes('## 自检'));assert.ok(!(await injection()).includes('如启用自检：'));await sw('自检').check();
- await sw('NSFW 环节检查').uncheck();await sw('NSFW 扩展').check();assert.equal(await sw('NSFW 环节检查').isChecked(),false);assert.ok((await injection()).includes('15.NSFW:'));
+ const savedEgg=await page.evaluate(()=>structuredClone(window.preview.settings.promptConfig));
+ await sw('Tag 结构与补充规则').uncheck();assert.equal(await branch('egg').isVisible(),false);assert.equal(await branch('tags').isVisible(),true);
+ await branch('egg.description').locator('input').evaluate(n=>n.focus());assert.equal(await branch('egg.description').locator('input').evaluate(n=>n===document.activeElement),false);
+ await sw('Tag 结构与补充规则').check();assert.ok(await branch('egg.description').isVisible());assert.deepEqual(await page.evaluate(()=>window.preview.settings.promptConfig),savedEgg);
+
+ await sw('彩蛋解析').uncheck();assert.ok(!(await injection()).includes('<easter_egg>'));await sw('彩蛋任务').uncheck();assert.equal(await branch('egg.description').isVisible(),false);assert.equal(await branch('selfcheck.egg').isVisible(),false);assert.ok(!(await injection()).includes('是否记得在彩蛋标记之后输出彩蛋'));await sw('彩蛋任务').check();assert.equal(await sw('彩蛋解析').isChecked(),false);await sw('彩蛋解析').check();
+ await sw('自检').uncheck();assert.equal(await branch('selfcheck.item1').isVisible(),false);assert.equal(await branch('output.selfcheck').isVisible(),false);assert.ok(!(await injection()).includes('## 自检'));assert.ok(!(await injection()).includes('如启用自检：'));await sw('自检').check();
+ assert.equal(await branch('selfcheck.nsfw').isVisible(),false);await sw('NSFW 扩展').check();await button('展开NSFW 扩展').click();assert.ok(await branch('selfcheck.nsfw').isVisible());await sw('色图额外检查').uncheck();assert.ok(await branch('selfcheck.nsfw').isVisible());assert.equal(await sw('色图额外检查').isChecked(),false);await sw('自检').uncheck();assert.equal(await branch('selfcheck.nsfw').isVisible(),false);await sw('自检').check();assert.ok(await branch('selfcheck.nsfw').isVisible());assert.equal(await sw('色图额外检查').isChecked(),false);assert.ok((await injection()).includes('15.NSFW:'));
  await button('展开性向补充').click();await page.getByRole('combobox',{name:'发送的性向',exact:true}).selectOption('BL');assert.ok((await injection()).includes('[bl]'));assert.ok(!(await injection()).includes('[bg]'));
  // Editing an unselected candidate must not select it.
  await button('编辑BG').click();const bg=page.getByRole('dialog',{name:'编辑 · BG',exact:true});await bg.getByRole('textbox').fill('UNSELECTED_BG');await bg.getByRole('button',{name:'保存',exact:true}).click();await bg.waitFor({state:'detached'});assert.ok(!(await injection()).includes('UNSELECTED_BG'));
- await sw('NSFW 扩展').uncheck();assert.equal(await page.getByRole('combobox',{name:'发送的性向',exact:true}).inputValue(),'BL');assert.ok(!(await injection()).includes('[bl]'));
- await sw('小标题').click({trial:true});await button('编辑自检输出规则').focus();await page.keyboard.press('Tab');assert.equal(await sw('小标题').evaluate(n=>n===document.activeElement),true);await page.keyboard.press('Space');await sw('小标题').click({trial:true});assert.equal(await sw('小标题').isChecked(),true);assert.ok((await injection()).includes('胡里花哨'));
+ await sw('NSFW 扩展').uncheck();assert.equal(await branch('selfcheck.nsfw').isVisible(),false);assert.equal(await branch('orientation').isVisible(),false);assert.equal(await branch('orientation').locator('select').inputValue(),'BL');assert.ok(!(await injection()).includes('[bl]'));
+ await sw('小标题').click({trial:true});await button('编辑小标题').focus();await page.keyboard.press('Tab');assert.equal(await sw('小标题').evaluate(n=>n===document.activeElement),true);await page.keyboard.press('Space');await sw('小标题').click({trial:true});assert.equal(await sw('小标题').isChecked(),true);assert.ok((await injection()).includes('胡里花哨'));
  // Source save failure keeps the old UI and D0.
  await page.evaluate(()=>window.preview.failSettingsSave=true);await source.selectOption('external');await page.waitForFunction(()=>document.querySelectorAll('dialog[open]').length>1);assert.equal(await source.inputValue(),'builtin');assert.ok(await page.locator('.miao-prompt-tree').isVisible());await page.evaluate(()=>window.preview.failSettingsSave=false);await page.locator('dialog[open]:not(.miao-settings-dialog) .popup-controls button').click();
  await source.selectOption('external');await page.waitForFunction(()=>window.preview.injections.miao_nai_image_instruction.text==='');await page.locator('.miao-prompt-tree').waitFor({state:'detached'});assert.deepEqual(await page.locator('.miao-panel-body h3').allTextContents(),['提示词来源','捕捉标签']);
  await page.getByRole('textbox',{name:'结束标签',exact:true}).fill('END');await button('保存').click();await page.waitForFunction(()=>window.preview.settings.endTag==='END');
  await button('关闭设置').click();await page.locator('#miao-nai-menu').click();await page.locator('.miao-settings').waitFor();await nav.getByRole('button',{name:'生图指令',exact:true}).click();assert.equal(await page.getByRole('textbox',{name:'结束标签',exact:true}).inputValue(),'END');assert.equal(await page.locator('.miao-prompt-tree').count(),0);
  await source.selectOption('builtin');await page.locator('.miao-prompt-tree').waitFor();await button('编辑画面组成').click();assert.ok((await text.inputValue()).endsWith('RETRY_DRAFT'));
+ const longText='a'.repeat(1800)+'\n'+'连续中文'.repeat(400)+'\nhttps://example.invalid/'+'url'.repeat(600)+'\n<imgthink> {{user}}  spaces';
+ for(const size of [{width:1280,height:800},{width:390,height:844},{width:320,height:430}]){
+  await page.setViewportSize(size);await text.fill(longText);
+  await page.waitForFunction(()=>{const t=document.querySelector('.miao-prompt-editor textarea');return t&&t.clientWidth>0&&t.scrollWidth<=t.clientWidth+2;});
+  assert.equal(await text.inputValue(),longText);assert.ok(await text.evaluate(n=>{n.scrollTop=100;return n.scrollTop>0;}));
+  assert.ok(await editor.evaluate(n=>n.scrollWidth<=n.clientWidth+2));
+ }
+ await editor.getByRole('button',{name:'保存',exact:true}).click();await editor.waitFor({state:'detached'});
+ assert.equal(await page.evaluate(()=>window.preview.settings.promptConfig.textOverridesById.composition.body),longText);assert.ok((await injection()).includes(longText));
+ for(const theme of ['light','dark']){
+  await page.locator('.miao-settings').evaluate((n,theme)=>{n.style.setProperty('--mi-bg',theme==='dark'?'#202124':'#ffffff');n.style.setProperty('--mi-ink',theme==='dark'?'#eeeeee':'#222222');},theme);
+  for(const width of [390,320]){
+   await page.setViewportSize({width,height:844});
+   await page.waitForFunction(()=>{const n=document.querySelector('.miao-panel-body'),leaf=document.querySelector('[data-node-id="egg.description"]');return n.scrollWidth<=n.clientWidth+2&&n.getBoundingClientRect().width<=innerWidth&&leaf.getBoundingClientRect().right<=innerWidth;});
+   assert.ok(await branch('egg.description').evaluate(n=>n.getBoundingClientRect().right<=innerWidth));
+  }
+  await page.locator('.miao-prompt-tree').screenshot({path:'docs/local/prompt-tree-'+theme+'-320.png'});
+ }
+ await page.locator('.miao-settings').evaluate(n=>{n.style.removeProperty('--mi-bg');n.style.removeProperty('--mi-ink');});
+
+ await button('编辑画面组成').click();await text.fill(base+'\nRETRY_DRAFT');await editor.getByRole('button',{name:'保存',exact:true}).click();await editor.waitFor({state:'detached'});await button('编辑画面组成').click();
  await mkdir('docs/local',{recursive:true});await page.screenshot({path:'docs/local/settings-editor-desktop.png'});
  for(const size of [{width:390,height:844},{width:390,height:430}]){
   await page.setViewportSize(size);await page.waitForFunction(({width,height})=>{const b=[...document.querySelectorAll('.miao-prompt-editor button')].find(n=>n.textContent==='保存')?.getBoundingClientRect(),card=document.querySelector('.miao-prompt-editor-card')?.getBoundingClientRect();return b&&b.bottom<=height&&card&&card.width<=width;},size);assert.ok(await editor.isVisible());const box=await editor.boundingBox();assert.ok(box.width<=size.width);const cancel=await editor.getByRole('button',{name:'取消',exact:true}).boundingBox();assert.ok(cancel.y+cancel.height<=size.height);

@@ -414,8 +414,8 @@ const definitions = [
     },
     {
         "nodeId": "selfcheck.nsfw",
-        "displayId": "04.11",
-        "label": "NSFW 环节检查",
+        "displayId": "04.NSFW",
+        "label": "色图额外检查",
         "parentId": "selfcheck",
         "order": 27,
         "kind": "text",
@@ -424,7 +424,8 @@ const definitions = [
         "slots": {
             "body": "11.NSFW环节要求\n- 性交双方的体型差是否有表现出来？\n- **是否将画面重心对准性器与性器？**\n- 是否有增加渲染符合色情性交的tag？\n- 性玩具的tag是否描述到位？"
         },
-        "children": []
+        "children": [],
+        "condition": ["nsfw"]
     },
     {
         "nodeId": "selfcheck.total",
@@ -526,9 +527,19 @@ export function validatePromptTree(nodes = promptTree) {
             seen.add(parent.nodeId); current = parent;
         }
         if (new Set(node.children).size !== node.children.length || node.children.some(id => byId.get(id)?.parentId !== node.nodeId)) throw Error('提示词子项错误');
-        if (node.condition?.some(id => !byId.get(id)?.toggleable) || node.condition && node.toggleable) throw Error('提示词条件错误');
+        if (node.condition && (!Array.isArray(node.condition) || node.condition.some(id => !byId.get(id)?.toggleable))) throw Error('提示词条件错误');
         if (node.kind === 'choice-option' && (!orientations.includes(node.choice) || node.toggleable)) throw Error('提示词选择器错误');
     }
+    const visiting = new Set(), visited = new Set();
+    function visit(id) {
+        if (visiting.has(id)) throw Error('提示词条件依赖循环');
+        if (visited.has(id)) return;
+        visiting.add(id);
+        const node = byId.get(id);
+        for (const dependency of [node.parentId, ...(node.condition || [])].filter(Boolean)) visit(dependency);
+        visiting.delete(id); visited.add(id);
+    }
+    nodes.forEach(node => visit(node.nodeId));
     return true;
 }
 validatePromptTree();

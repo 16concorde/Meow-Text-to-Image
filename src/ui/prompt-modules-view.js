@@ -13,44 +13,52 @@ export function createPromptModulesView({settings,save,onError,parent,expanded=n
     async function commit(next){
         if(busy)return;
         busy=true;for(const {toggle,select} of states){if(toggle)toggle.disabled=true;if(select)select.disabled=true;}
-        try{await save(next);}catch(error){onError(error);}finally{busy=false;paint();}
+        try{const pending=save(next);paint();await pending;}catch(error){onError(error);}finally{busy=false;paint();}
     }
     function paint(){
-        for(const {item,status,toggle,select} of states){
+        for(const {item,branch,status,toggle,select,expand,children} of states){
             const config=settings.promptConfig,active=effectiveEnabled(config,item.nodeId);
+            branch.hidden=!!item.parentId&&(!effectiveEnabled(config,item.parentId)||!!item.condition?.some(id=>!effectiveEnabled(config,id)));
+            if(children){
+                children.hidden=!active||!expanded.has(item.nodeId);
+                expand.disabled=busy||!active;
+                expand.textContent=children.hidden?'▸':'▾';
+                expand.setAttribute('aria-expanded',String(!children.hidden));
+                expand.setAttribute('aria-label',(children.hidden?'展开':'收起')+item.label);
+            }
             status.textContent=(Object.keys(config.textOverridesById?.[item.nodeId]||{}).length?'已自定义':'默认')+' · '+(active?'生效':savedEnabled(config,item.nodeId)?'受父级、条件或选择限制':'已关闭');
             if(item.condition)status.textContent+='（依赖'+item.condition.map(id=>treeById[id].label).join('、')+'）';
             if(toggle){toggle.checked=savedEnabled(config,item.nodeId);toggle.disabled=busy;}
             if(select){select.value=config.orientation;select.disabled=busy;}
         }
     }
-    function append(id,container){
-        const item=treeById[id],branch=node('div',undefined,'miao-tree-node');branch.dataset.nodeId=id;branch.dataset.displayId=item.displayId;
-        const row=node('div',undefined,'miao-prompt-module');branch.append(row);container.append(branch);
+    function append(id,container,depth=1){
+        const item=treeById[id],branch=node('div',undefined,'miao-tree-node');branch.dataset.nodeId=id;branch.dataset.displayId=item.displayId;branch.dataset.depth=depth;
+        const row=node('div',undefined,'miao-prompt-module'),title=node('div',undefined,'miao-tree-title'),actions=node('div',undefined,'miao-tree-actions');
+        title.append(node('strong',item.displayId+' '+item.label));row.append(title,actions);branch.append(row);container.append(branch);
+        let expand,children;
         if(item.children.length){
-            const expand=node('button',undefined,'miao-tree-expand miao-button');expand.type='button';expand.setAttribute('aria-label','展开'+item.label);
-            const children=node('div',undefined,'miao-tree-children');children.id='miao-tree-'+id.replaceAll('.','-');expand.setAttribute('aria-controls',children.id);
-            const fold=()=>{children.hidden=!expanded.has(id);expand.textContent=children.hidden?'▸':'▾';expand.setAttribute('aria-expanded',String(!children.hidden));expand.setAttribute('aria-label',(children.hidden?'展开':'收起')+item.label);};
-            expand.onclick=()=>{if(expanded.has(id))expanded.delete(id);else expanded.add(id);fold();};row.append(expand);branch.append(children);fold();
-            item.children.forEach(child=>append(child,children));
+            expand=node('button',undefined,'miao-tree-expand miao-button');expand.type='button';expand.setAttribute('aria-label','展开'+item.label);
+            children=node('div',undefined,'miao-tree-children');children.id='miao-tree-'+id.replaceAll('.','-');expand.setAttribute('aria-controls',children.id);
+            expand.onclick=()=>{if(expanded.has(id))expanded.delete(id);else expanded.add(id);paint();};title.append(expand);branch.append(children);
+            item.children.forEach(child=>append(child,children,depth+1));
         }
-        row.append(node('strong',item.displayId+' '+item.label));
         const status=node('span','','miao-muted miao-tree-status');row.append(status);
         let toggle,select;
         if(item.toggleable){
-            const wrap=node('label',undefined,'miao-prompt-switch');toggle=node('input');toggle.type='checkbox';toggle.setAttribute('role','switch');toggle.setAttribute('aria-label','启用'+item.label);wrap.append(toggle,node('span',undefined,'miao-prompt-switch-track'));row.append(wrap);
+            const wrap=node('label',undefined,'miao-prompt-switch');toggle=node('input');toggle.type='checkbox';toggle.setAttribute('role','switch');toggle.setAttribute('aria-label','启用'+item.label);wrap.append(toggle,node('span',undefined,'miao-prompt-switch-track'));actions.append(wrap);
             toggle.onchange=()=>{void commit(withTreeEnabled(settings.promptConfig,id,toggle.checked));};
         }
         if(Object.keys(item.slots).length){
             const edit=node('button',undefined,'miao-button miao-tree-edit');edit.type='button';edit.setAttribute('aria-label','编辑'+item.label);edit.title='编辑'+item.label;const icon=node('i',undefined,'fa-solid fa-pencil');icon.setAttribute('aria-hidden','true');edit.append(icon);
-            edit.onclick=()=>openPromptEditor({parent:parent(),settings,key:id,label:item.label,save,onSaved:paint});row.append(edit);
+            edit.onclick=()=>openPromptEditor({parent:parent(),settings,key:id,label:item.label,save,onSaved:paint});actions.prepend(edit);
         }
         if(item.kind==='choice-group'){
             const choice=node('label','发送的性向','miao-field');select=node('select');select.setAttribute('aria-label','发送的性向');
             for(const [value,text] of [['','不指定'],['BG','BG'],['BL','BL'],['GL','GL'],['INTERSEX','双性']]){const option=node('option',text);option.value=value;select.append(option);}
-            select.onchange=()=>{void commit({...settings.promptConfig,orientation:select.value});};choice.append(select);row.append(choice);
+            select.onchange=()=>{void commit({...settings.promptConfig,orientation:select.value});};choice.append(select);branch.append(choice);
         }
-        states.push({item,status,toggle,select});
+        states.push({item,branch,status,toggle,select,expand,children});
     }
     treeRoots.forEach(id=>append(id,root));paint();return root;
 
