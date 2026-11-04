@@ -65,3 +65,22 @@ test('custom delimiters are literal, including regex metacharacters',()=>{
  }
  assert.throws(()=>delimiterPattern('','###'));assert.throws(()=>delimiterPattern('###',''));
 });
+test('streamed raw reasoning and host-separated reasoning capture only actual body',()=>{
+ const reasoning='<analysis><think>image###fake###</analysis>';
+ const body='正文<imgthink>image###draft###</imgthink>image###first### image###second###';
+ const full=reasoning+body;
+ for(let length=0;length<=full.length;length++){
+  const received=full.slice(0,length),blocks=parseBodyBlocks(received);
+  const expected=['first','second'].filter(prompt=>received.includes(`image###${prompt}###`));
+  assert.deepEqual(blocks.map(b=>b.prompt),expected,`stream offset ${length}`);
+  assert.deepEqual(blocks.map(b=>b.bodyIndex),expected.map((_,i)=>i));
+  for(const block of blocks)assert.equal(received.slice(block.start,block.start+block.raw.length),block.raw);
+ }
+ const message={mes:body,extra:{reasoning:'image###independent-fake###'}};
+ const original=structuredClone(message);
+ const separated=parseBodyBlocks(message.mes),raw=parseBodyBlocks(full);
+ assert.deepEqual(separated.map(b=>[b.prompt,b.bodyIndex]),raw.map(b=>[b.prompt,b.bodyIndex]));
+ assert.deepEqual(separated.map(b=>b.start),raw.map(b=>b.start-reasoning.length));
+ assert.deepEqual(message,original);
+ assert.deepEqual(parseBodyBlocks('<think>image###fake###</think>image###real###').map(b=>b.prompt),['real']);
+});

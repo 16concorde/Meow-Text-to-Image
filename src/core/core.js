@@ -85,31 +85,45 @@ export function maskReasoning(text, configured={}) {
     let value=String(text??'');
     // Instructions in comments can mention an opening reasoning tag literally.
     value=value.replace(/<!--[\s\S]*?(?:-->|$)/g,match=>match.replace(/[^\r\n]/g,' '));
-    const maskPair=(prefix,suffix)=>{
-        let cursor=0;
-        while(cursor<value.length){
-            const start=value.indexOf(prefix,cursor);if(start<0)break;
-            let end=value.length;
-            if(suffix){
-                let position=start+prefix.length,depth=1;
-                while(position<value.length){
-                    const close=value.indexOf(suffix,position),nested=prefix===suffix?-1:value.indexOf(prefix,position);
-                    if(close<0)break;
-                    if(nested>=0&&nested<close){depth++;position=nested+prefix.length;}
-                    else{position=close+suffix.length;if(--depth===0){end=position;break;}}
+    const pairs=[['<think>','</think>'],['<thinking>','</thinking>'],['<analysis>','</analysis>'],['<reasoning>','</reasoning>'],['<imgthink>','</imgthink>'],['<imagethink>','</imagethink>']];
+    if(configured.prefix?.trim())pairs.unshift([configured.prefix,configured.suffix||'']);
+    // Cache each next opening so every search advances through the text.
+    const openings=pairs.map(([prefix])=>value.indexOf(prefix));
+    const parts=[];
+    let cursor=0;
+    while(cursor<value.length){
+        let selected=-1,start=value.length;
+        for(let i=0;i<pairs.length;i++){
+            if(openings[i]>=0&&openings[i]<cursor)openings[i]=value.indexOf(pairs[i][0],cursor);
+            if(openings[i]>=0&&openings[i]<start){selected=i;start=openings[i];}
+        }
+        if(selected<0)break;
+        const [prefix,suffix]=pairs[selected];
+        let end=value.length;
+        if(suffix){
+            let position=start+prefix.length,depth=1;
+            let close=value.indexOf(suffix,position);
+            let nested=prefix===suffix?-1:value.indexOf(prefix,position);
+            // Only the outer pair controls depth; other tag types are opaque.
+            while(close>=0){
+                if(nested>=0&&nested<close){
+                    depth++;position=nested+prefix.length;
+                    nested=value.indexOf(prefix,position);
+                    if(close<position)close=value.indexOf(suffix,position);
+                }else{
+                    position=close+suffix.length;
+                    if(--depth===0){end=position;break;}
+                    close=value.indexOf(suffix,position);
+                    if(nested>=0&&nested<position)nested=value.indexOf(prefix,position);
                 }
             }
-            value=value.slice(0,start)+value.slice(start,end).replace(/[^\r\n]/g,' ')+value.slice(end);
-            cursor=end;
         }
-    };
-    // Mask outer reasoning first so tags inside it cannot open a second range.
-    const outerPairs=[['<think>','</think>'],['<thinking>','</thinking>'],['<analysis>','</analysis>'],['<reasoning>','</reasoning>']];
-    if(configured.prefix?.trim())outerPairs.unshift([configured.prefix,configured.suffix||'']);
-    for(const [prefix,suffix] of outerPairs)maskPair(prefix,suffix);
-    // imgthink tags are reasoning too, but only when they remain visible.
-    maskPair('<imgthink>','</imgthink>');
-    maskPair('<imagethink>','</imagethink>');
+        parts.push(value.slice(cursor,start),value.slice(start,end).replace(/[^\r\n]/g,' '));
+        cursor=end;
+    }
+    if(!parts.length)return value;
+    parts.push(value.slice(cursor));
+    value=parts.join('');
     return value;
 }
 export function pageItems(items,page=0,size=24){
