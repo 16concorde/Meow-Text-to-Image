@@ -1,4 +1,5 @@
 import {defaultPromptSettings,fixedMacroSnapshot,updateFixedMacros,migratePromptSettings} from './src/prompts/prompt-settings.js';
+import {migrateTreeSettings} from './src/prompts/tree-settings.js';
 import {createPromptInjection} from './src/platform/prompt-injection.js';
 import {selectGenerationProfile,reconcileProfileSelection} from './src/profiles/profile-selection.js';
 import {parseGenerationBody,generationCandidates,createEggMarkerCache} from './src/profiles/easter-egg-selection.js';
@@ -114,7 +115,7 @@ async function saveGeneratedImage(data,folder,name){
 
 ensureProfileIds(settings.profiles);
 for(const warning of reconcileProfileSelection(settings))notices.warning(warning,'配置选择');
-const eggMarkerCache=createEggMarkerCache({read:readResourceMacros,key:()=>settings.promptConfig?.fixed?.彩蛋标签});
+const eggMarkerCache=createEggMarkerCache({read:readResourceMacros,key:()=>settings.promptConfig?.version===2?settings.promptConfig.params.eggMarker:settings.promptConfig?.fixed?.彩蛋标签});
 const profilePreviews=createProfilePreviews({profiles:()=>settings.profiles,library:()=>settings.vibeLibrary,prompt:()=>settings.samplePrompt,onQueued:()=>notices.info('例图已加入生图队列','喵喵文生图'),enqueue,generate:requestImage,saveImage:(data,scope)=>saveGeneratedImage(data,scope.folder,`sample-${Date.now()}-${randomId()}`),persist:persistSettings,onChange:()=>settingsHost?.dispatchEvent(new Event('miao-profile-previews')),onError:error=>generationError(error)});
 const directUser=getCurrentUserHandle(),directVault=createKeyVault(directUser);
 const customVault=createKeyVault(JSON.stringify([directUser,'custom-novelai']));
@@ -544,11 +545,15 @@ function observeChat(){
     if(!chatObserver)chatObserver=new MutationObserver(()=>scheduleRender(false));
     observedChat=root;chatObserver.observe(observedChat,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['src','mesid']});
 }
+let promptConfigSaving=false;
 async function savePromptConfig(next){
+    if(promptConfigSaving)throw Error('提示词配置正在保存，请稍后重试');
+    promptConfigSaving=true;
     const previous=settings.promptConfig;
     settings.promptConfig=next;
     try{promptInjection.update();await persistSettings();eggMarkerCache.invalidate();}
     catch(error){if(settings.promptConfig===next){settings.promptConfig=previous;try{promptInjection.update();}catch{}}throw error;}
+    finally{promptConfigSaving=false;}
 }
 async function readResourceMacros(){return fixedMacroSnapshot(settings.promptConfig);}
 async function saveResourceMacros(snapshot,values){
@@ -987,12 +992,17 @@ async function init() {
             const name=[settings.world,...bundledWorldTargets(wi.world_names,settings.world)].find(n=>n&&wi.world_names.includes(n));
             const book=name?await wi.loadWorldInfo(name):null;
             if(name&&!book)throw Error('无法读取旧世界书');
-            settings.promptConfig=newInstallation?defaultPromptSettings():migratePromptSettings(book);
+            settings.promptConfig=book&&!newInstallation?migratePromptSettings(book):defaultPromptSettings();
         }catch{
             settings.promptConfig=defaultPromptSettings('external');settings.promptConfig.migration={status:'failed'};
             notices.warning('旧提示词迁移失败，已保留外部模式；请检查固定配置后再切换。','提示词');
         }
         try{await persistSettings();}catch{settings.promptConfig.mode='external';notices.warning('提示词迁移保存失败，已保留外部模式，请重新保存设置。','提示词');}
+    }else{
+        try{
+            const next=migrateTreeSettings(settings.promptConfig);
+            if(next!==settings.promptConfig)await savePromptConfig(next);
+        }catch{notices.warning('提示词结构迁移或保存失败，已保留原配置，可重试保存。','提示词');}
     }
     refreshPrompt();
     for(const name of ['CHAT_LOADED','CHAT_CHANGED','GENERATION_AFTER_COMMANDS'])if(c.eventTypes[name])c.eventSource.on(c.eventTypes[name],refreshPrompt);

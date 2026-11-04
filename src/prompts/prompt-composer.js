@@ -1,7 +1,15 @@
 import {promptText} from './prompt-overrides.js';
 import {parseHeaderMacros} from '../resources/world-macros.js';
 import {fixedMacroSnapshot,moduleNames} from './prompt-settings.js';
+import {composeTreePrompt} from './tree-composer.js';
 export function composePrompt(config){
+    if(config.version===2)return composeTreePrompt(config);
+    if(config.version!==1)throw Error('不支持的提示词配置版本');
+    if(config.mode!=='builtin')return '';
+    return composeLegacyPrompt(config);
+}
+// Compatibility only: custom v1 modules remain usable until explicit tree adoption.
+function composeLegacyPrompt(config){
     const virtual=new Set(parseHeaderMacros(promptText({...config,overrides:{}},'header')).filter(m=>!['人格','对象','张数','cot_xml','彩蛋标签'].includes(m.name)).map(m=>`${m.scope==='setvar'?'getvar':'getglobalvar'}::${m.name}`));
     const variables=new Map(),bodies=[];
     const enabled=moduleNames.filter(k=>config.modules[k]&&(k!=='easterEggDescription'||config.modules.easterEgg));

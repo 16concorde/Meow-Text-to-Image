@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {promptTemplates} from '../src/prompts/prompt-templates.js';
 import {composePrompt} from '../src/prompts/prompt-composer.js';
-import {defaultPromptSettings,migratePromptSettings,fixedMacroSnapshot,updateFixedMacros} from '../src/prompts/prompt-settings.js';
+import {defaultLegacyPromptSettings as defaultPromptSettings,migratePromptSettings,fixedMacroSnapshot,updateFixedMacros} from '../src/prompts/prompt-settings.js';
 import {createPromptInjection,PROMPT_ID} from '../src/platform/prompt-injection.js';
 test('templates retain every source body exactly',()=>{
  const book=JSON.parse(fs.readFileSync(new URL('../assets/worldbook.json',import.meta.url)));
@@ -31,7 +31,7 @@ test('nested fixed macros survive validation and composition',()=>{
 });
 test('migration is read only and distinguishes conditional entries',()=>{
  const book={entries:structuredClone(promptTemplates)},before=JSON.stringify(book),c=migratePromptSettings(book);
- assert.equal(c.mode,'external');assert.equal(c.modules.nsfw,false);assert.equal(JSON.stringify(book),before);
+ assert.equal(c.mode,'external');assert.equal(c.enabledById.nsfw,false);assert.equal(JSON.stringify(book),before);
 });
 test('single D0 ID always reflects latest synchronous configuration and host errors surface',()=>{
  const calls=[],settings={enabled:true,promptConfig:defaultPromptSettings()};let errors=0;

@@ -35,7 +35,7 @@ export function createEggMarkerCache({read,key}){
         read(){
             const current=key();
             if(!cached||cached.key!==current||cached.revision!==revision){
-                cached={key:current,revision,promise:Promise.resolve().then(read).then(snapshot=>snapshot.macros.findLast(m=>m.scope==='setvar'&&m.name==='彩蛋标签')?.value.trim()||'').catch(()=>'')};
+                cached={key:current,revision,promise:Promise.resolve().then(read).then(snapshot=>snapshot.macros.findLast(m=>['setvar','parameter'].includes(m.scope)&&m.name==='彩蛋标签')?.value.trim()||'').catch(()=>'')};
             }
             return cached.promise;
         },

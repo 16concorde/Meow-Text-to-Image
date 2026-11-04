@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {defaultPromptSettings} from '../src/prompts/prompt-settings.js';
+import {defaultLegacyPromptSettings as defaultPromptSettings} from '../src/prompts/prompt-settings.js';
 import {promptTemplates} from '../src/prompts/prompt-templates.js';
 import {promptText,withPromptOverride} from '../src/prompts/prompt-overrides.js';
 import {composePrompt} from '../src/prompts/prompt-composer.js';
