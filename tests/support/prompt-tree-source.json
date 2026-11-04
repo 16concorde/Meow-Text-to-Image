@@ -2,7 +2,7 @@
   "00.PREFIX": {
     "nodeId": "task",
     "slot": "prefix",
-    "sha256": "9dc673f84892333f47b9a8cc261a05a132a399e8853a47a140d0e5e9f02d0226"
+    "sha256": "2d5aa9b5ef3665d61d855e4de0b28370a6ff23f6629143b11d0edadbdd728ecc"
   },
   "00.2": {
     "nodeId": "task.steps",
@@ -17,32 +17,27 @@
   "01.TEXT": {
     "nodeId": "composition",
     "slot": "body",
-    "sha256": "6c27757ae47f7619cd962bc2f5dcb116e3a4cb0886ca26b03715619ab62a0d13"
+    "sha256": "ec064918333624a43488b1a83b7ff09cd461a3d84eab107201c86b4878bf4972"
   },
-  "02.01": {
-    "nodeId": "tags.rules",
-    "slot": "body",
-    "sha256": "091518fe796e3262d8c2cd76a07062bcf217e431fa1b4e7f109f31651f71ad70"
-  },
-  "02.02": {
+  "01.01": {
     "nodeId": "egg",
     "slot": "body",
     "sha256": "2884e62b8223d604c3a0a4c6e14de4d15485170566e3016d30c451e421c917d9"
   },
-  "02.02.END": {
-    "nodeId": "egg",
-    "slot": "suffix",
-    "sha256": "ea996e4b601118a0aa0323a6988449eab16e09f6d660bd16c827549969ca8134"
-  },
-  "02.02.01": {
+  "01.01.01": {
     "nodeId": "egg.description",
     "slot": "body",
     "sha256": "b15af29195a0d922fd91039d18e68c62f76e8383dd637722e30c789d40f1db47"
   },
+  "02.TEXT": {
+    "nodeId": "tags",
+    "slot": "body",
+    "sha256": "091518fe796e3262d8c2cd76a07062bcf217e431fa1b4e7f109f31651f71ad70"
+  },
   "03.01": {
     "nodeId": "nsfw.rules",
     "slot": "body",
-    "sha256": "08cd7b6c2468d2fb0784c7ef4428b185d1210cd6cddc2a4498c3d86c6ecf9d82"
+    "sha256": "3329ec9ce1e800ed60531ad60bfaa01f5b7290b2505b4a37ecd52d0427182f6b"
   },
   "03.02.BG": {
     "nodeId": "orientation.bg",
@@ -139,10 +134,15 @@
     "slot": "body",
     "sha256": "2aa55a9d3fc516d15083fe4d1dcaed5b5f3b93cdf479a2bf8e8ab1fbe79a1d1f"
   },
+  "05.PREFIX": {
+    "nodeId": "output",
+    "slot": "prefix",
+    "sha256": "972efeef08589bfa7b0dd483dfe82a60151d4caef0efb4076feed0027a1056fb"
+  },
   "05.01": {
     "nodeId": "output.selfcheck",
     "slot": "body",
-    "sha256": "643963040c11c186a6139edff385c7501cd836cca39d77f628f80cdf1076cbd9"
+    "sha256": "e8c9e0ba8e533ce8ef41efef09d196674ca2e4f6193955b1c02cd70fb78978d8"
   },
   "05.02": {
     "nodeId": "output.subtitle",
@@ -152,6 +152,6 @@
   "05.03": {
     "nodeId": "output.format",
     "slot": "body",
-    "sha256": "7dd82765580e00154f65bbb61c9506060b670ddeb39f623fc4437e7999b6965a"
+    "sha256": "351f2655f6808e901bab82a117eff134a24d68eb7de9f2f786ccf829cce60497"
   }
 }

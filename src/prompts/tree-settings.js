@@ -3,7 +3,7 @@ import {promptTemplates} from './prompt-templates.js';
 
 export const paramNames = Object.freeze({persona:'人格', target:'对象', count:'张数', eggMarker:'彩蛋标签'});
 export function defaultTreeSettings(mode = 'builtin') {
-    return {version:2, mode, params:{persona:'ELLA', target:'User', count:'2~3', eggMarker:'/meow_FM'},
+    return {version:2, treeRevision:2, mode, params:{persona:'ELLA', target:'User', count:'2~3', eggMarker:'/meow_FM'},
         enabledById:Object.fromEntries(promptTree.filter(n => n.toggleable).map(n => [n.nodeId, n.defaultEnabled])),
         textOverridesById:{}, orientation:''};
 }
@@ -16,7 +16,16 @@ export function hasLegacyCustomizations(config) {
 // until the user explicitly chooses the tree; retain the entire original configuration.
 export function migrateTreeSettings(config, {adoptTree = false} = {}) {
     if (!config) return defaultTreeSettings();
-    if (config.version === 2) { validateTreeSettings(config); return config; }
+    if (config.version === 2) {
+        if (config.treeRevision === 2) { validateTreeSettings(config); return config; }
+        const next = {...config, treeRevision:2, treeBackup:{revision:1, config:structuredClone(config)}, enabledById:{...config.enabledById}, textOverridesById:structuredClone(config.textOverridesById || {})};
+        if (typeof next.enabledById['tags.rules'] === 'boolean') next.enabledById.tags = savedEnabled(config, 'tags') && next.enabledById['tags.rules'];
+        delete next.enabledById['tags.rules']; delete next.enabledById['selfcheck.nsfw'];
+        if (next.textOverridesById['tags.rules']?.body !== undefined) next.textOverridesById.tags = {...next.textOverridesById.tags, body:next.textOverridesById['tags.rules'].body};
+        delete next.textOverridesById['tags.rules'];
+        if (next.textOverridesById.egg) { delete next.textOverridesById.egg.suffix; if (!Object.keys(next.textOverridesById.egg).length) delete next.textOverridesById.egg; }
+        validateTreeSettings(next); return next;
+    }
     if (config.version !== 1) throw Error('不支持的提示词配置版本，原配置已保留');
     if (hasLegacyCustomizations(config) && !adoptTree) return config;
     const next = defaultTreeSettings(config.mode);
@@ -53,6 +62,7 @@ export function treeText(config, id, slot = 'body') {
     return config.textOverridesById?.[id]?.[slot] ?? treeById[id].slots[slot];
 }
 export function withTreeText(config, id, values) {
+    config = migrateTreeSettings(config);
     const overrides = {...config.textOverridesById}, slots = {...overrides[id]};
     for (const [slot, text] of Object.entries(values)) {
         validateText(id, slot, text);
@@ -74,6 +84,7 @@ export function effectiveEnabled(config, id) {
     return node.kind !== 'choice-option' || config.orientation === node.choice;
 }
 export function withTreeEnabled(config, id, enabled) {
+    config = migrateTreeSettings(config);
     if (!treeById[id]?.toggleable || typeof enabled !== 'boolean') throw Error('该条目不可切换');
     return validateTreeSettings({...config, enabledById:{...config.enabledById, [id]:enabled}});
 }

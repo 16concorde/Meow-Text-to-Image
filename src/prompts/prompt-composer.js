@@ -1,9 +1,10 @@
 import {promptText} from './prompt-overrides.js';
 import {parseHeaderMacros} from '../resources/world-macros.js';
 import {fixedMacroSnapshot,moduleNames} from './prompt-settings.js';
+import {migrateTreeSettings} from './tree-settings.js';
 import {composeTreePrompt} from './tree-composer.js';
 export function composePrompt(config){
-    if(config.version===2)return composeTreePrompt(config);
+    if(config.version===2)return composeTreePrompt(migrateTreeSettings(config));
     if(config.version!==1)throw Error('不支持的提示词配置版本');
     if(config.mode!=='builtin')return '';
     return composeLegacyPrompt(config);

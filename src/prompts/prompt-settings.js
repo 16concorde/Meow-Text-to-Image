@@ -12,7 +12,7 @@ export function fixedMacroSnapshot(config){
     return {world:'插件设置',macros:parseHeaderMacros(fixedNames.map(n=>`{{setvar::${n}::${config.fixed[n]}}}`).join('\n'))};
 }
 export function updateFixedMacros(config,snapshot,values){
-    if(config.version===2){const params={...config.params};for(const key of Object.keys(paramNames))if(Object.hasOwn(values,key))params[key]=values[key];return validateTreeSettings({...config,params});}
+    if(config.version===2){config=migrateTreeSettings(config);const params={...config.params};for(const key of Object.keys(paramNames))if(Object.hasOwn(values,key))params[key]=values[key];return validateTreeSettings({...config,params});}
     const book={entries:{0:{comment:'tag头',content:fixedMacroSnapshot(config).macros.map(m=>`{{${m.scope}::${m.name}::${m.value}}}`).join('\n')}}};
     const patched=patchWorldMacros(book,snapshot.macros,values);
     return {...config,fixed:Object.fromEntries(worldMacros(patched).map(m=>[m.name,m.value]))};

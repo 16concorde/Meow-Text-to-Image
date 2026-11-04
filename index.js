@@ -547,6 +547,7 @@ function observeChat(){
 }
 let promptConfigSaving=false;
 async function savePromptConfig(next){
+    if(next.version===2)next=migrateTreeSettings(next);
     if(promptConfigSaving)throw Error('提示词配置正在保存，请稍后重试');
     promptConfigSaving=true;
     const previous=settings.promptConfig;

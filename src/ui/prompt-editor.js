@@ -32,7 +32,7 @@ export function openPromptEditor({parent,settings,key,label,save,onSaved=()=>{}}
         }catch(error){status.textContent=error.message;}
         finally{busy=false;submit.disabled=restore.disabled=dismiss.disabled=false;for(const input of Object.values(inputs))input.readOnly=false;}
     });
-    card.append(heading,node('p',tree?'保存后更新 D0；恢复默认仅修改当前草稿。酒馆宏按原文保留，插件不解析变量。':'旧版兼容编辑；保存后继续使用原模块组装。','miao-muted'),fields,status,actions);layer.append(card);parent.append(layer);
+    card.append(heading,node('p',tree?(key==='task'?'任务说明中的（对象）、（人格）、（数量）张由基础配置替换，彩蛋开启时自动补充标记。':'保存后更新 D0；恢复默认仅修改当前草稿。酒馆宏按原文保留，插件不解析变量。'):'旧版兼容编辑；保存后继续使用原模块组装。','miao-muted'),fields,status,actions);layer.append(card);parent.append(layer);
     const viewport=window.visualViewport,fit=()=>{layer.style.setProperty('--miao-editor-height',Math.max(180,(viewport?.height||window.innerHeight)-Math.max(0,parent.getBoundingClientRect().top-(viewport?.offsetTop||0))-16)+'px');};fit();viewport?.addEventListener('resize',fit);viewport?.addEventListener('scroll',fit);
     const observer=new MutationObserver(()=>{if(!layer.isConnected)finish();});observer.observe(document.body,{childList:true,subtree:true});parent.addEventListener('close',finish);
     const oldBack=window.__TAURITAVERN_HANDLE_BACK__,back=()=>{discard();return true;};window.__TAURITAVERN_HANDLE_BACK__=back;
