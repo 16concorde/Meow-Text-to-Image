@@ -1,3 +1,4 @@
+import {createNsfwKeywordsView} from './nsfw-keywords-view.js';
 import {promptTemplates} from '../prompts/prompt-templates.js';
 import {treeById, treeRoots} from '../prompts/tree-defaults.js';
 import {effectiveEnabled, savedEnabled, withTreeEnabled} from '../prompts/tree-settings.js';
@@ -16,7 +17,7 @@ export function createPromptModulesView({settings,save,onError,parent,expanded=n
         try{const pending=save(next);paint();await pending;}catch(error){onError(error);}finally{busy=false;paint();}
     }
     function paint(){
-        for(const {item,branch,status,toggle,select,expand,children} of states){
+        for(const {item,branch,status,toggle,select,expand,children,keywords} of states){
             const config=settings.promptConfig,active=effectiveEnabled(config,item.nodeId);
             branch.hidden=!!item.parentId&&(!effectiveEnabled(config,item.parentId)||!!item.condition?.some(id=>!effectiveEnabled(config,id)));
             if(children){
@@ -27,16 +28,19 @@ export function createPromptModulesView({settings,save,onError,parent,expanded=n
                 expand.setAttribute('aria-label',(children.hidden?'展开':'收起')+item.label);
             }
             status.textContent=(Object.keys(config.textOverridesById?.[item.nodeId]||{}).length?'已自定义':'默认')+' · '+(active?'生效':savedEnabled(config,item.nodeId)?'受父级、条件或选择限制':'已关闭');
+            if(active&&(item.nodeId==='nsfw'||item.nodeId==='selfcheck.nsfw'||item.nodeId==='nsfw.rules'||item.nodeId==='orientation'||item.kind==='choice-option'))status.textContent=status.textContent.replace(' · 生效',' · 配置允许（发送需03关键词命中）');
             if(item.condition)status.textContent+='（依赖'+item.condition.map(id=>treeById[id].label).join('、')+'）';
             if(toggle){toggle.checked=savedEnabled(config,item.nodeId);toggle.disabled=busy;}
             if(select){select.value=config.orientation;select.disabled=busy;}
+            keywords?.refresh();
         }
     }
     function append(id,container,depth=1){
         const item=treeById[id],branch=node('div',undefined,'miao-tree-node');branch.dataset.nodeId=id;branch.dataset.displayId=item.displayId;branch.dataset.depth=depth;
         const row=node('div',undefined,'miao-prompt-module'),title=node('div',undefined,'miao-tree-title'),actions=node('div',undefined,'miao-tree-actions');
         title.append(node('strong',item.displayId+' '+item.label));row.append(title,actions);branch.append(row);container.append(branch);
-        let expand,children;
+        let expand,children,keywords;
+        if(id==='nsfw'){keywords=createNsfwKeywordsView({settings,save});branch.append(keywords.element);}
         if(item.children.length){
             expand=node('button',undefined,'miao-tree-expand miao-button');expand.type='button';expand.setAttribute('aria-label','展开'+item.label);
             children=node('div',undefined,'miao-tree-children');children.id='miao-tree-'+id.replaceAll('.','-');expand.setAttribute('aria-controls',children.id);
@@ -58,7 +62,7 @@ export function createPromptModulesView({settings,save,onError,parent,expanded=n
             for(const [value,text] of [['','不指定'],['BG','BG'],['BL','BL'],['GL','GL'],['INTERSEX','双性']]){const option=node('option',text);option.value=value;select.append(option);}
             select.onchange=()=>{void commit({...settings.promptConfig,orientation:select.value});};choice.append(select);branch.append(choice);
         }
-        states.push({item,branch,status,toggle,select,expand,children});
+        states.push({item,branch,status,toggle,select,expand,children,keywords});
     }
     treeRoots.forEach(id=>append(id,root));paint();return root;
 

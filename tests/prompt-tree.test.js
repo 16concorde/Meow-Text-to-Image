@@ -45,7 +45,7 @@ test('all parent/egg/check/orientation combinations obey effective state without
  const ids=['composition','egg','egg.description','selfcheck','nsfw','output.subtitle'];
  for(let bits=0;bits<64;bits++)for(const orientation of ['','BG','BL','GL','INTERSEX']){
   let c=defaultPromptSettings();ids.forEach((id,i)=>{c=withTreeEnabled(c,id,!!(bits&(1<<i)));});c.orientation=orientation;
-  const before=structuredClone(c),text=composePrompt(c),egg=c.enabledById.composition&&c.enabledById.egg,check=c.enabledById.selfcheck;
+  const before=structuredClone(c),text=composePrompt(c,{nsfwMatched:true}),egg=c.enabledById.composition&&c.enabledById.egg,check=c.enabledById.selfcheck;
   assert.equal(text.includes(treeById.egg.slots.body),egg);assert.equal(text.includes('<easter_egg>'),egg&&c.enabledById['egg.description']);
   assert.equal(text.includes(treeById['selfcheck.egg'].slots.body),egg&&check);
   assert.equal(text.includes(treeById.selfcheck.slots.prefix),check);assert.equal(text.includes('\n\n</imgthink>\n\n'),check);
@@ -99,7 +99,7 @@ test('D0 uses a single synchronous ID, clears external/disabled and can roll bac
 test('NSFW check preserves saved state and text behind conditions; registry rejects dependency cycles',()=>{
  const n=treeById['selfcheck.nsfw'];assert.equal(n.displayId,'04.NSFW');assert.equal(n.label,'色图额外检查');assert.deepEqual(n.condition,['nsfw']);assert.equal(n.parentId,'selfcheck');assert.equal(n.toggleable,false);
  let c=withTreeText(defaultPromptSettings(),'selfcheck.nsfw',{body:'SAVED_NSFW_CHECK'});assert.equal(effectiveEnabled(c,n.nodeId),false);
- c=withTreeEnabled(c,'nsfw',true);assert.equal(effectiveEnabled(c,n.nodeId),true);assert.equal(composePrompt(c).split('SAVED_NSFW_CHECK').length,2);
+ c=withTreeEnabled(c,'nsfw',true);assert.equal(effectiveEnabled(c,n.nodeId),true);assert.equal(composePrompt(c,{nsfwMatched:true}).split('SAVED_NSFW_CHECK').length,2);
  for(const parent of ['nsfw','selfcheck']){const off=withTreeEnabled(c,parent,false);assert.equal(effectiveEnabled(off,n.nodeId),false);assert.equal(savedEnabled(off,n.nodeId),true);assert.equal(treeText(off,n.nodeId),'SAVED_NSFW_CHECK');assert.equal(effectiveEnabled(withTreeEnabled(off,parent,true),n.nodeId),true);}
  assert.throws(()=>withTreeEnabled(c,n.nodeId,false));assert.equal(treeText(c,n.nodeId),'SAVED_NSFW_CHECK');
  const invalid=structuredClone(promptTree);invalid.find(n=>n.nodeId==='nsfw').condition=['missing'];assert.throws(()=>validatePromptTree(invalid));

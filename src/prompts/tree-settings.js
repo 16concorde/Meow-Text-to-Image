@@ -1,9 +1,10 @@
 import {promptTree, treeById, orientations} from './tree-defaults.js';
+import {defaultNsfwKeywords,validateNsfwKeywords} from './nsfw-trigger.js';
 import {promptTemplates} from './prompt-templates.js';
 
 export const paramNames = Object.freeze({persona:'人格', target:'对象', count:'张数', eggMarker:'彩蛋标签'});
 export function defaultTreeSettings(mode = 'builtin') {
-    return {version:2, treeRevision:2, mode, params:{persona:'ELLA', target:'User', count:'2~3', eggMarker:'/meow_FM'},
+    return {version:2, treeRevision:3, mode, nsfwTrigger:{keywords:[...defaultNsfwKeywords]}, params:{persona:'ELLA', target:'User', count:'2~3', eggMarker:'/meow_FM'},
         enabledById:Object.fromEntries(promptTree.filter(n => n.toggleable).map(n => [n.nodeId, n.defaultEnabled])),
         textOverridesById:{}, orientation:''};
 }
@@ -17,14 +18,21 @@ export function hasLegacyCustomizations(config) {
 export function migrateTreeSettings(config, {adoptTree = false} = {}) {
     if (!config) return defaultTreeSettings();
     if (config.version === 2) {
-        if (config.treeRevision === 2) { validateTreeSettings(config); return config; }
-        const next = {...config, treeRevision:2, treeBackup:{revision:1, config:structuredClone(config)}, enabledById:{...config.enabledById}, textOverridesById:structuredClone(config.textOverridesById || {})};
+        if (config.treeRevision === 3) { validateTreeSettings(config); return config; }
+        if (config.treeRevision === 2) {
+            const next = {...config, treeRevision:3, nsfwTrigger:config.nsfwTrigger === undefined ? {keywords:[...defaultNsfwKeywords]} : structuredClone(config.nsfwTrigger)};
+            validateTreeSettings(next); return next;
+        }
+        if (config.treeRevision !== undefined && config.treeRevision !== 1) throw Error('不支持的提示词树版本，原配置已保留');
+        const next = {...config, treeRevision:2, enabledById:{...config.enabledById}, textOverridesById:structuredClone(config.textOverridesById || {})};
+        if (Object.hasOwn(config, 'treeBackup')) next.treeUpgradeBackup = {revision:1, config:structuredClone(config)};
+        else next.treeBackup = {revision:1, config:structuredClone(config)};
         if (typeof next.enabledById['tags.rules'] === 'boolean') next.enabledById.tags = savedEnabled(config, 'tags') && next.enabledById['tags.rules'];
         delete next.enabledById['tags.rules']; delete next.enabledById['selfcheck.nsfw'];
         if (next.textOverridesById['tags.rules']?.body !== undefined) next.textOverridesById.tags = {...next.textOverridesById.tags, body:next.textOverridesById['tags.rules'].body};
         delete next.textOverridesById['tags.rules'];
         if (next.textOverridesById.egg) { delete next.textOverridesById.egg.suffix; if (!Object.keys(next.textOverridesById.egg).length) delete next.textOverridesById.egg; }
-        validateTreeSettings(next); return next;
+        return migrateTreeSettings(next);
     }
     if (config.version !== 1) throw Error('不支持的提示词配置版本，原配置已保留');
     if (hasLegacyCustomizations(config) && !adoptTree) return config;
@@ -41,6 +49,8 @@ export function migrateTreeSettings(config, {adoptTree = false} = {}) {
 
 export function validateTreeSettings(config) {
     if (config.version !== 2 || !['builtin','external'].includes(config.mode) || !orientations.includes(config.orientation)) throw Error('提示词配置无效');
+    if (!config.nsfwTrigger || typeof config.nsfwTrigger !== 'object') throw Error('NSFW 触发配置无效，原配置已保留');
+    validateNsfwKeywords(config.nsfwTrigger.keywords);
     for (const key of Object.keys(paramNames)) {
         if (typeof config.params?.[key] !== 'string' || config.params[key].length > 16000) throw Error('任务参数需为不超过 16000 字符的文本');
     }
@@ -96,4 +106,12 @@ export function promptWarnings(config, startTag, endTag) {
     if (startTag !== 'image###' || endTag !== '###') warnings.push('当前捕捉标签与内置 image### / ### 格式不一致，可能无法识别图片；请核对捕捉标签和输出正文。');
     if (config.textOverridesById?.['output.format']?.body !== undefined) warnings.push('图片标签结构已自定义，请核对实际输出与捕捉标签；插件不会自动改写正文。');
     return warnings;
+}
+
+export function withNsfwKeywords(config, keywords) {
+    validateNsfwKeywords(keywords);
+    const candidate = {...config, nsfwTrigger:{keywords:[...keywords]}};
+    try { validateNsfwKeywords(config.nsfwTrigger?.keywords); }
+    catch { candidate.nsfwTriggerBackup = structuredClone(config.nsfwTrigger ?? null); }
+    return migrateTreeSettings(candidate);
 }

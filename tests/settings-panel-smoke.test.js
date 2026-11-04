@@ -34,6 +34,39 @@ test('actual extension startup, fixed prompt tree, drafts, rollback, modes and n
  await page.getByRole('textbox',{name:'起始标签',exact:true}).fill('image###');
  assert.deepEqual(await page.locator('.miao-prompt-tree > .miao-tree-node').evaluateAll(nodes=>nodes.map(n=>n.dataset.displayId)),['00','01','02','03','04','05']);
  const branch=id=>page.locator(`[data-node-id="${id}"]`),button=(name)=>page.getByRole('button',{name,exact:true});
+ // Keywords belong to the 03 card and remain editable while disabled/collapsed.
+ const keywords=page.getByRole('region',{name:'NSFW 触发关键词',exact:true});
+ assert.equal(await keywords.getByRole('button',{name:/^删除触发关键词：/}).count(),10);
+ assert.equal(await keywords.locator('..').getAttribute('data-node-id'),'nsfw');
+ const addWord=async word=>{await keywords.getByRole('button',{name:'添加触发关键词',exact:true}).click();await keywords.getByRole('textbox',{name:'触发关键词文本',exact:true}).fill(word);await keywords.getByRole('textbox',{name:'触发关键词文本',exact:true}).press('Enter');};
+ await addWord('FIXTUREKEY');await keywords.getByRole('button',{name:'编辑触发关键词：FIXTUREKEY',exact:true}).waitFor();
+ await keywords.getByRole('button',{name:'编辑触发关键词：FIXTUREKEY',exact:true}).click();await keywords.getByRole('textbox').fill('CANCELED');await keywords.getByRole('textbox').press('Escape');assert.equal(await keywords.getByRole('textbox').count(),0);assert.equal(await keywords.getByRole('button',{name:'编辑触发关键词：FIXTUREKEY',exact:true}).count(),1);
+ const keywordSaves=await page.evaluate(()=>window.preview.settingsSaves);await addWord('nsfw');await keywords.getByText('触发关键词重复（不区分大小写）',{exact:true}).waitFor();assert.equal(await page.evaluate(()=>window.preview.settingsSaves),keywordSaves);await keywords.getByRole('button',{name:'取消关键词编辑',exact:true}).click();
+ await page.evaluate(()=>window.preview.failSettingsSave=true);await keywords.getByRole('button',{name:'删除触发关键词：FIXTUREKEY',exact:true}).click();await keywords.getByText('保存失败，请重试',{exact:true}).waitFor();assert.equal(await keywords.getByRole('button',{name:'编辑触发关键词：FIXTUREKEY',exact:true}).count(),1);await page.evaluate(()=>window.preview.failSettingsSave=false);
+ await keywords.getByRole('button',{name:'编辑触发关键词：FIXTUREKEY',exact:true}).click();await keywords.getByRole('textbox').fill('UPDATEDKEY');await keywords.getByRole('button',{name:'保存触发关键词',exact:true}).click();await keywords.getByRole('button',{name:'编辑触发关键词：UPDATEDKEY',exact:true}).waitFor();
+ // A synthetic send goes through the same event ordering as the host. No generation API.
+ await page.getByRole('switch',{name:'启用NSFW 扩展',exact:true}).check();
+ assert.ok(!(await injection()).includes('15.NSFW:'));
+ await page.evaluate(()=>{
+  const input=document.createElement('input');input.id='fixture-chat-input';input.setAttribute('aria-label','模拟聊天输入');const send=document.createElement('button');send.id='fixture-chat-send';send.textContent='模拟发送';document.querySelector('.miao-panel-body').prepend(input,send);
+  send.onclick=async()=>{const p=window.preview;await p.emit('GENERATION_AFTER_COMMANDS','normal');p.chat.push({is_user:true,mes:input.value,extra:{}});await p.emit('MESSAGE_SENT',p.chat.length-1);await p.emit('USER_MESSAGE_RENDERED',p.chat.length-1);p.fixturePrompt=p.injections.miao_nai_image_instruction.text;};
+ });
+ await page.getByRole('textbox',{name:'模拟聊天输入',exact:true}).fill('UPDATEDKEY input');await page.getByRole('button',{name:'模拟发送',exact:true}).click();await page.waitForFunction(()=>window.preview.fixturePrompt?.includes('15.NSFW:'));assert.ok((await injection()).includes('11.NSFW环节要求'));
+ await page.evaluate(async()=>{const p=window.preview;p.chat.push({mes:'safe stream',extra:{}});await p.emit('STREAM_TOKEN_RECEIVED');await p.emit('MESSAGE_UPDATED',p.chat.length-1);});assert.ok((await injection()).includes('15.NSFW:'));
+ await page.evaluate(async()=>{const p=window.preview;await p.emit('GENERATION_ENDED');p.chat.splice(0,p.chat.length,{is_user:true,mes:'safe user'},{mes:'UPDATEDKEY old reply'});await p.emit('GENERATION_AFTER_COMMANDS','regenerate');p.chat.pop();await p.emit('MESSAGE_DELETED',p.chat.length);p.fixturePrompt=p.injections.miao_nai_image_instruction.text;});assert.ok(!(await injection()).includes('15.NSFW:'));
+ for(const [type,expected] of [['swipe',false],['continue',true]]){
+  await page.evaluate(async type=>{const p=window.preview;p.chat.splice(0,p.chat.length,{is_user:true,mes:'safe user'},{mes:'UPDATEDKEY old reply'});await p.emit('GENERATION_AFTER_COMMANDS',type);},type);assert.equal((await injection()).includes('15.NSFW:'),expected);
+ }
+ await page.evaluate(async()=>{const p=window.preview;p.chat.splice(0,p.chat.length,{mes:'safe in chat B'});await p.emit('CHAT_CHANGED');document.getElementById('fixture-chat-input').remove();document.getElementById('fixture-chat-send').remove();});assert.ok(!(await injection()).includes('15.NSFW:'));
+ // Empty is an intentional saved list, including after re-arming 03.
+ while(await keywords.getByRole('button',{name:/^删除触发关键词：/}).count()){
+  const count=await keywords.getByRole('button',{name:/^删除触发关键词：/}).count();await keywords.getByRole('button',{name:/^删除触发关键词：/}).first().click();await page.waitForFunction(count=>document.querySelectorAll('.miao-keyword-chip').length<count,count);
+ }
+ await keywords.getByText('暂无触发关键词，03 不会自动激活',{exact:true}).waitFor();await page.getByRole('switch',{name:'启用NSFW 扩展',exact:true}).uncheck();await page.getByRole('switch',{name:'启用NSFW 扩展',exact:true}).check();assert.deepEqual(await page.evaluate(()=>window.preview.settings.promptConfig.nsfwTrigger.keywords),[]);
+ page.once('dialog',d=>d.dismiss());await keywords.getByRole('button',{name:'恢复默认触发关键词',exact:true}).click();assert.deepEqual(await page.evaluate(()=>window.preview.settings.promptConfig.nsfwTrigger.keywords),[]);
+ page.once('dialog',d=>d.accept());await keywords.getByRole('button',{name:'恢复默认触发关键词',exact:true}).click();await page.waitForFunction(()=>window.preview.settings.promptConfig.nsfwTrigger.keywords.length===10);await page.getByRole('switch',{name:'启用NSFW 扩展',exact:true}).uncheck();
+
+ await page.getByRole('switch',{name:'启用NSFW 扩展',exact:true}).click({trial:true});
  const before=await injection(),saves=await page.evaluate(()=>window.preview.settingsSaves);
  for(const name of ['任务与参数','画面组成','自检','输出要求'])await button('展开'+name).click();
  await button('展开彩蛋任务').click();
@@ -50,7 +83,7 @@ test('actual extension startup, fixed prompt tree, drafts, rollback, modes and n
 
  assert.equal(await page.getByText('最终 D0 提示词预览',{exact:true}).count(),0);
  assert.equal(await page.locator('.miao-prompt-tree [draggable="true"],.miao-prompt-tree [contenteditable]').count(),0);
- assert.equal(await page.locator('.miao-prompt-tree').getByRole('button',{name:/新增|删除|拖拽|改名|排序/}).count(),0);
+ assert.equal(await page.locator('.miao-prompt-module').getByRole('button',{name:/新增|删除|拖拽|改名|排序/}).count(),0);
  for(const name of ['任务与参数','重要步骤与绘图数量','同人角色','画面组成','通用 Tag 规范及补充','彩蛋任务','彩蛋解析','自检','彩蛋额外检查','小标题','图片标签结构']){
   await button('编辑'+name).click();const dlg=page.getByRole('dialog',{name:'编辑 · '+name,exact:true});assert.equal(await dlg.locator('textarea').count(),name==='自检'?2:1);await dlg.getByRole('button',{name:'取消',exact:true}).click();await dlg.waitFor({state:'detached'});
  }
@@ -71,7 +104,7 @@ test('actual extension startup, fixed prompt tree, drafts, rollback, modes and n
 
  await sw('彩蛋解析').uncheck();assert.ok(!(await injection()).includes('<easter_egg>'));await sw('彩蛋任务').uncheck();assert.equal(await branch('egg.description').isVisible(),false);assert.equal(await branch('selfcheck.egg').isVisible(),false);assert.ok(!(await injection()).includes('是否记得在彩蛋标记之后输出彩蛋'));await sw('彩蛋任务').check();assert.equal(await sw('彩蛋解析').isChecked(),false);await sw('彩蛋解析').check();
  await sw('自检').uncheck();assert.equal(await branch('selfcheck.item1').isVisible(),false);assert.equal(await branch('output.selfcheck').isVisible(),false);assert.ok(!(await injection()).includes('## 自检'));assert.ok(!(await injection()).includes('如启用自检：'));await sw('自检').check();
- assert.equal(await branch('selfcheck.nsfw').isVisible(),false);await sw('NSFW 扩展').check();await button('展开NSFW 扩展').click();assert.ok(await branch('selfcheck.nsfw').isVisible());assert.equal(await branch('selfcheck.nsfw').getByRole('switch').count(),0);await sw('自检').uncheck();assert.equal(await branch('selfcheck.nsfw').isVisible(),false);await sw('自检').check();assert.ok(await branch('selfcheck.nsfw').isVisible());assert.ok((await injection()).includes('15.NSFW:'));
+ assert.equal(await branch('selfcheck.nsfw').isVisible(),false);await page.evaluate(async()=>{window.preview.chat.push({is_user:true,mes:'NSFW fixture',extra:{}});await window.preview.emit('MESSAGE_SENT',window.preview.chat.length-1);});await sw('NSFW 扩展').check();await button('展开NSFW 扩展').click();assert.ok(await branch('selfcheck.nsfw').isVisible());assert.equal(await branch('selfcheck.nsfw').getByRole('switch').count(),0);await sw('自检').uncheck();assert.equal(await branch('selfcheck.nsfw').isVisible(),false);await sw('自检').check();assert.ok(await branch('selfcheck.nsfw').isVisible());assert.ok((await injection()).includes('15.NSFW:'));
  await button('展开性向补充').click();await page.getByRole('combobox',{name:'发送的性向',exact:true}).selectOption('BL');assert.ok((await injection()).includes('[bl]'));assert.ok(!(await injection()).includes('[bg]'));
  // Editing an unselected candidate must not select it.
  await button('编辑BG').click();const bg=page.getByRole('dialog',{name:'编辑 · BG',exact:true});await bg.getByRole('textbox').fill('UNSELECTED_BG');await bg.getByRole('button',{name:'保存',exact:true}).click();await bg.waitFor({state:'detached'});assert.ok(!(await injection()).includes('UNSELECTED_BG'));
@@ -124,7 +157,7 @@ test('actual extension startup, fixed prompt tree, drafts, rollback, modes and n
     assert.ok(await historical.evaluate(()=>window.preview.injections.miao_nai_image_instruction.text.includes('OLD_CUSTOM_TAGS')));
     await historical.evaluate(()=>window.preview.failSettingsSave=false);
     await historical.getByRole('textbox',{name:'人格',exact:true}).fill('RETRY_PERSONA');await historical.getByRole('textbox',{name:'人格',exact:true}).press('Tab');
-    await historical.waitForFunction(()=>window.preview.settings.promptConfig.treeRevision===2);
+    await historical.waitForFunction(()=>window.preview.settings.promptConfig.treeRevision===3);
    }
    assert.equal(await historical.evaluate(()=>window.preview.settings.promptConfig.textOverridesById.tags.body),'OLD_CUSTOM_TAGS');
    assert.equal(await historical.evaluate(()=>window.preview.settings.promptConfig.treeBackup.config.textOverridesById.egg.suffix),'OLD_CUSTOM_END');

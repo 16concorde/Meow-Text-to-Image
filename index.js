@@ -1,6 +1,6 @@
 import {defaultPromptSettings,fixedMacroSnapshot,updateFixedMacros,migratePromptSettings} from './src/prompts/prompt-settings.js';
 import {migrateTreeSettings} from './src/prompts/tree-settings.js';
-import {createPromptInjection} from './src/platform/prompt-injection.js';
+import {createPromptInjection,bindPromptInjection} from './src/platform/prompt-injection.js';
 import {selectGenerationProfile,reconcileProfileSelection} from './src/profiles/profile-selection.js';
 import {parseGenerationBody,generationCandidates,createEggMarkerCache} from './src/profiles/easter-egg-selection.js';
 import {prepareGeneration,sendPrepared} from './src/generation/generation-lifecycle.js';
@@ -1006,7 +1006,7 @@ async function init() {
         }catch{notices.warning('提示词结构迁移或保存失败，已保留原配置，可重试保存。','提示词');}
     }
     refreshPrompt();
-    for(const name of ['CHAT_LOADED','CHAT_CHANGED','GENERATION_AFTER_COMMANDS'])if(c.eventTypes[name])c.eventSource.on(c.eventTypes[name],refreshPrompt);
+    bindPromptInjection({source:c.eventSource,eventTypes:c.eventTypes,injection:promptInjection});
 
     let migrated=false;for(const message of c.chat)migrated=migrateSwipeImages(message)||migrated;if(migrated)await c.saveChat();
     document.addEventListener('click',event=>{

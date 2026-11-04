@@ -2324,3 +2324,12 @@ img[data-miao-export-state=loading] {visibility: hidden;}
 .miao-prompt-editor-card>.miao-actions{flex-shrink:0;background:var(--mi-bg,var(--SmartThemeBlurTintColor));padding:8px 0}
 @media(max-width:680px){.miao-prompt-editor{padding:10px}.miao-prompt-module{gap:6px}.miao-prompt-tree .miao-tree-node{padding:6px}.miao-tree-actions{gap:0}.miao-prompt-editor-field textarea{font-size:16px}.miao-prompt-editor-card .miao-button{min-height:44px}}
 @media(prefers-reduced-motion:reduce){.miao-prompt-switch-track,.miao-prompt-switch-track::after{transition:none}}
+
+.miao-nsfw-keywords{min-width:0;margin-top:8px;overflow-wrap:anywhere}
+.miao-nsfw-keywords[data-armed=false]>strong{color:var(--mi-muted)}
+.miao-keyword-chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;min-width:0}
+.miao-keyword-chip{display:inline-flex;max-width:100%;min-width:0;border:1px solid var(--mi-line);border-radius:var(--mi-radius,10px);overflow:hidden}
+.miao-keyword-chip .miao-button{border:0;border-radius:0;padding:6px;min-height:44px;overflow-wrap:anywhere;white-space:normal;min-width:0}
+.miao-keyword-chip .miao-button:last-child{flex:0 0 36px}
+.miao-keyword-editor{display:flex;gap:6px;flex-wrap:wrap;min-width:0}
+.miao-keyword-editor input{flex:1 1 120px;min-width:0;max-width:100%;font-size:16px}

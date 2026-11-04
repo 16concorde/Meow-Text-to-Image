@@ -1,11 +1,12 @@
 import {treeById, treeRoots, validatePromptTree} from './tree-defaults.js';
 import {effectiveEnabled, treeText, validateTreeSettings} from './tree-settings.js';
 
-export function composeTreePrompt(config) {
+export function composeTreePrompt(config, activation = {}) {
     validatePromptTree(); validateTreeSettings(config);
     if (config.mode !== 'builtin') return '';
     const parts = [];
     function visit(id) {
+        if ((id === 'nsfw' || id === 'selfcheck.nsfw') && activation.nsfwMatched !== true) return;
         if (!effectiveEnabled(config, id)) return;
         const node = treeById[id];
         for (const slot of ['prefix', 'body']) if (Object.hasOwn(node.slots, slot)) {
