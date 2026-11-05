@@ -55,7 +55,7 @@ const definitions = [
         "toggleable": true,
         "defaultEnabled": true,
         "slots": {
-            "body": "## 了解组成\n以“人物关系 + 情绪氛围”为核心。\n\n1. 什么类型:\n特写、半身、拥抱、牵手等\n→ 优先选择“明确”的构图(如 face to face / close distance / intimate moment)\n\n2. 主体人物(聚焦于<user>和主要NPC):\n- if: ACGN角色 → 使用角色英文名tag(不使用1girl/1boy 替代)\n- if: 原创角色 → 使用 girl / boy + 详细外貌tag(发色+发型+瞳色+眼型+特征等)\n- 多人时必须区分命名(如 GirlA / GirlB / 或角色名)\n- 人物数量为:1boy?……\n\n3. 人物表情:\n- 必须细化程度 + 情绪层级\n- 在保持角色美型的程度上添加表情比例\n- 表情必须为小于1的权重(例:0.7::wide eyes::)\n- 视线在看什么地方\n例如：\nslight smile / gentle smile / shy smile / forced smile / cold expression / soft gaze / longing eyes / half-lidded eyes/wide eyes\n\n4. 什么角度:\n- sfw类型的图片要突出人物的脸部和上半身\n→ 推荐：eye level / slight side angle / close-up...\n\n5. 分镜特写:\n- 情绪强烈 → 使用 close-up / face focus\n- 强调关系 → 双人同框 + 距离控制(very close / slight gap)\n- 构图围绕“人物互动”而不是背景\n- 充分展示<user>和角色们的外貌，重心放在角色面部表情之间的交互。\n\n6. 角色类型:\n多人图规则：\n- 通用模板每个角色必须“独立括号 + 完整描述 + 权重”\n- 禁止共享外貌tag\n- 例:\n(CharacterA:1.2, ...)\n(CharacterB:1.2, ...)\n\n7. 上半身部位状态:\n- 服装状态 + 手部动作 + 细节\n- 动作是否合理？\n\n8. 下半身部位状态:\n- 站姿 / 距离 / 接触\n\n9. 角色特征:\n- 考虑如何正确描写<user>和主要NPC以及次要在场角色的外貌，请考虑身份、年龄等\n- 正确刻画不同的的身材外貌\n必须包含：\nhair, hairstyle, eye color, body type, height difference\n→ 强化：\nslim, tall, delicate, soft features, sharp eyes(按角色气质选)\n\n10. 衣物信息:\n- 必须具体\n- 著名服饰则使用服饰tag\n例如：\nwhite shirt, black coat, loose sweater, soft fabric, formal wear\n\n11. 追加状态:\nmessy hair, slightly wet, clothes slipping, disheveled\n→ 控制在轻微 + 避免过度 + 把控权重。\n\n12. 环境元素:\n包含：\n地点 + 时间 + 光影\n例如：indoor, window light, night, warm light, soft lighting, backlighting, cinematic lighting\n\n13. 交互动作:\n必须写在角色括号外，无需括号\n关键词：\nholding hands, hugging, touching face, leaning closer, whispering, looking at each other,\n\n14. 人物背景:\n- 必须存在\n例:bedroom, cafe, classroom, city night, window, curtain, bed, desk\n- 与剧情配合:\n暧昧 → 私密空间 / 柔光"
+            "body": "## 了解组成\n以“人物关系 + 情绪氛围”为核心。\n\n1. 什么类型:\n特写、半身、拥抱、牵手等\n→ 优先选择“明确”的构图(如 face to face / close distance / intimate moment)\n\n2. 主体人物(聚焦于<user>和主要NPC):\n- if: ACGN角色 → 使用角色英文名tag(不使用1girl/1boy 替代)\n- if: 原创角色 → 使用 girl / boy + 详细外貌tag(发色+发型+瞳色+眼型+特征等)\n- 多人时在全局 base 写画面总人数，如 2boys / 1boy, 1girl；每个角色段分别写无数字的 boy / girl / other 或标准同人角色名\n- 外貌与服装只写在所属角色段，按剧情决定，不预设固定人物特征\n\n3. 人物表情:\n- 必须细化程度 + 情绪层级\n- 在保持角色美型的程度上添加表情比例\n- 表情必须为小于1的权重(例:0.7::wide eyes::)\n- 视线在看什么地方\n例如：\nslight smile / gentle smile / shy smile / forced smile / cold expression / soft gaze / longing eyes / half-lidded eyes/wide eyes\n\n4. 什么角度:\n- sfw类型的图片要突出人物的脸部和上半身\n→ 推荐：eye level / slight side angle / close-up...\n\n5. 分镜特写:\n- 情绪强烈 → 使用 close-up / face focus\n- 强调关系 → 双人同框 + 距离控制(very close / slight gap)\n- 构图围绕“人物互动”而不是背景\n- 充分展示<user>和角色们的外貌，重心放在角色面部表情之间的交互。\n\n6. 角色类型:\n多人图规则：\n- NovelAI V4/V4.5/V5 多人图在同一个图片 tag 内使用 base | 角色1 prompt | 角色2 prompt [| 更多角色 prompt]\n- base 只写总人数、全局构图、场景、光照、画风与共同氛围\n- 每个角色段独立完整描述，顺序对应原剧情，禁止跨段共享外貌\n- 单人图仍使用普通单段 tag，不必添加管道符\n\n7. 上半身部位状态:\n- 服装状态 + 手部动作 + 细节\n- 动作是否合理？\n\n8. 下半身部位状态:\n- 站姿 / 距离 / 接触\n\n9. 角色特征:\n- 考虑如何正确描写<user>和主要NPC以及次要在场角色的外貌，请考虑身份、年龄等\n- 正确刻画不同的的身材外貌\n必须包含：\nhair, hairstyle, eye color, body type, height difference\n→ 强化：\nslim, tall, delicate, soft features, sharp eyes(按角色气质选)\n\n10. 衣物信息:\n- 必须具体\n- 著名服饰则使用服饰tag\n例如：\nwhite shirt, black coat, loose sweater, soft fabric, formal wear\n\n11. 追加状态:\nmessy hair, slightly wet, clothes slipping, disheveled\n→ 控制在轻微 + 避免过度 + 把控权重。\n\n12. 环境元素:\n包含：\n地点 + 时间 + 光影\n例如：indoor, window light, night, warm light, soft lighting, backlighting, cinematic lighting\n\n13. 交互动作:\n普通全局场景与互动气氛放 base；有施受关系的动作放在对应角色段内\n发起方使用 source#动作，承受方使用 target#动作；双方互相执行同一动作时可在各自角色段使用 mutual#动作\n关键词：\nholding hands, hugging, touching face, leaning closer, whispering, looking at each other,\n\n14. 人物背景:\n- 必须存在\n例:bedroom, cafe, classroom, city night, window, curtain, bed, desk\n- 与剧情配合:\n暧昧 → 私密空间 / 柔光"
         },
         "children": [
             "egg"
@@ -71,7 +71,7 @@ const definitions = [
         "toggleable": true,
         "defaultEnabled": true,
         "slots": {
-            "body": "7.彩蛋：在本次正文图片完成后，额外构思一个小彩蛋图片作为给对话对象的惊喜，风格以搞怪 / 萌系 / 性感为主，确保与正文图片画风统一，可考虑 if 线、Q版互动、动物化、四格漫画等。\n- 正文仍须满足本轮配置的原定张数。\n- 彩蛋不计入正文的原定张数。\n- 全部输出数量为「正文图片数 + 1 张」。\n- 在本轮基础配置指定的彩蛋标记后输出彩蛋；彩蛋标记必须独占一行。\n\n16.彩蛋生成\n- 彩蛋必须为“独立完整的一张图”\n- 整体偏向：搞怪 / 萌系 / 微色情\n- 画面重点为“微趣味性 + 反差感 + 角色关系再演绎”\n- 画面需要背景tag作为背景点缀\n\n- 内容构思方向：\n  - if线(角色关系反转 / 性格反转)\n  - Q版(Mochi / super deformed)\n  - 动物化(猫塑/犬塑)\n  - 四格漫画(4koma / comic strip)\n  - 日常崩坏(严肃角色→搞怪行为)\n  - 自由发挥创思\n\n- 多角色规则：\n  - 每个角色必须独立括号 + 权重\n    (CharacterA:1.2, ...)\n    (CharacterB:1.2, ...)\n  - 必须保持角色“可辨识特征”(发色 / 眼睛 / 标志物)\n  - 禁止角色融合或属性共享\n  - 倾向日系萌感，拒绝美式。\n\n- 优先选择：\n  - 使用明确风格tag：\n    Mochi, comic style, 4koma,\n  - 动作优先选择“互动性强”的：\n    chasing, poking, pulling, sitting on, holding tail\n\n- 禁止：\n  - 使用抽象词(beautiful, nice, amazing)\n  - 风格不统一(例如一人Q版一人正常比例)\n  - 人头动物等，过于夸张的美式风格\n\n- 推荐追加：\n  lighthearted, comedic contrast, clean lines, flat color"
+            "body": "7.彩蛋：在本次正文图片完成后，额外构思一个小彩蛋图片作为给对话对象的惊喜，风格以搞怪 / 萌系 / 性感为主，确保与正文图片画风统一，可考虑 if 线、Q版互动、动物化、四格漫画等。\n- 正文仍须满足本轮配置的原定张数。\n- 彩蛋不计入正文的原定张数。\n- 全部输出数量为「正文图片数 + 1 张」。\n- 在本轮基础配置指定的彩蛋标记后输出彩蛋；彩蛋标记必须独占一行。\n\n16.彩蛋生成\n- 彩蛋必须为“独立完整的一张图”\n- 整体偏向：搞怪 / 萌系 / 微色情\n- 画面重点为“微趣味性 + 反差感 + 角色关系再演绎”\n- 画面需要背景tag作为背景点缀\n\n- 内容构思方向：\n  - if线(角色关系反转 / 性格反转)\n  - Q版(Mochi / super deformed)\n  - 动物化(猫塑/犬塑)\n  - 四格漫画(4koma / comic strip)\n  - 日常崩坏(严肃角色→搞怪行为)\n  - 自由发挥创思\n\n- 多角色规则：\n  - 同样使用 base | 角色1 prompt | 角色2 prompt，每人独立一段，特征按剧情决定\n  - 总人数与全局风格放 base，各人外貌和动作放所属角色段\n  - 必须保持角色“可辨识特征”(发色 / 眼睛 / 标志物)\n  - 禁止角色融合或属性共享\n  - 倾向日系萌感，拒绝美式。\n\n- 优先选择：\n  - 使用明确风格tag：\n    Mochi, comic style, 4koma,\n  - 动作优先选择“互动性强”的：\n    chasing, poking, pulling, sitting on, holding tail\n\n- 禁止：\n  - 使用抽象词(beautiful, nice, amazing)\n  - 风格不统一(例如一人Q版一人正常比例)\n  - 人头动物等，过于夸张的美式风格\n\n- 推荐追加：\n  lighthearted, comedic contrast, clean lines, flat color"
         },
         "children": [
             "egg.description"
@@ -101,7 +101,7 @@ const definitions = [
         "toggleable": true,
         "defaultEnabled": true,
         "slots": {
-            "body": "注1:\n角色信息: (-sfw/nsfw-upperBody-sfw/nsfw-LowerBody)是否追加状态脏污、汗水、伤痕(轻微情趣向)等等。\n衣物信息: (原创服装:服装特色tag 并是否追加状态湿身、破损、脏污)只包含了服装的基本状态(比如是湿的，那么可以自行添加，关键词tag “Wet clothes”)\n只使用可见的服装部位，例如是赤裸则不进行调用。\n\n注2:\ntag结构：\n1.基础结构\n- 类型(选一:nsfw/sfw)\n- 画面总人数(必须明确：1girl/1boy/etc),\n- 质感提升词(controlled impasto/ soft thick paint / low saturation)\n- 构图(from front / close-up / full body / pov 等),\n- 背景(场景 + 时间 + 光照)\n- 添加增强稳定性tag:masterpiece, best quality,\n\n2.角色模板\n- 每个角色必须使用“()”进行包裹\n- 包裹必须包含详细的：(外貌 + 性别 + 服装 + 表情 + 动作)\n- (著名角色仅需包裹名字tag，除非特殊需求)\n- 每个角色必须加权重\n标准格式：\n(CharacterName or GirlA/BoyA:1.2,hair color, hairstyle,eye color,body type,clothing,expression,action)\n示例：\n(girlA:1.2, black hair, long hair, blue eyes, slim, school uniform, smile, standing),\n(1.2::Yuki Makoto::1.2::persona3::, black jacket slung over shoulders, deadpan but dominant expression, looking down, intimidating aura),\n- 每个角色必须使用不同“标签核心词”(如 GirlA / GirlB )\n- 禁止多个角色共用同一个模板tag\n- 禁止共享描述(例如只写一次 hair / eyes)\n- 多人图必须使用模板：必须写入角色括号内部 + 加权\n多角色交互时，核心交互须成对添加`#`前缀，发起方前缀为`source#`，承受方前缀为`target#`，如果是相互的则使用`mutual#`\n例:\n(角色Atag,source#kissing),\n(角色Btag,target#kissing)\n\n3.动作与交互\n- 角色之间的互动必须写在“角色模板括号外部”\n- 使用tag：hugging, holding hands, looking at each other\n\n前三点结合才是一个完整tag。\n\n4.禁止项\n- 禁止使用抽象词：beautiful,cute,amazing\n- 禁止模糊词：nice pose,good lighting,glowing,dominant\n- 禁止混合身份描述(例如两个角色共享外貌tag)\n- 禁止过分细致描写tag"
+            "body": "注1:\n角色信息: (-sfw/nsfw-upperBody-sfw/nsfw-LowerBody)是否追加状态脏污、汗水、伤痕(轻微情趣向)等等。\n衣物信息: (原创服装:服装特色tag 并是否追加状态湿身、破损、脏污)只包含了服装的基本状态(比如是湿的，那么可以自行添加，关键词tag “Wet clothes”)\n只使用可见的服装部位，例如是赤裸则不进行调用。\n\n注2:\ntag结构：\n1.基础结构\n- 类型(选一:nsfw/sfw)\n- 画面总人数(必须明确：1girl/1boy/etc),\n- 质感提升词(controlled impasto/ soft thick paint / low saturation)\n- 构图(from front / close-up / full body / pov 等),\n- 背景(场景 + 时间 + 光照)\n- 添加增强稳定性tag:masterpiece, best quality,\n\n2.角色模板\n- NovelAI V4/V4.5/V5 多人图在一个完整图片 tag 内输出：\nbase prompt | 角色1 prompt | 角色2 prompt [| 更多角色 prompt]\n- base prompt 写总人数、全局构图、场景、时间、光照、画风与共同氛围\n- 每个角色 prompt 写无数字的 boy / girl / other（或标准同人角色名），再写仅属于此人的外貌、服装、表情、动作；按剧情决定特征，顺序对应原剧情\n- 著名角色的 1.5::English Name::、1.5::English Source:: 放在相应角色段；默认特征仍按同人规则处理\n- 不使用 SD 式 (Name:1.2, ...) 包裹整个人物串，不引入 GirlA / BoyA 等占位人物名\n- NAI 权重使用 1.2::text::、{text}、[text]，不要求整个人物段加权\n- 单人图仍使用普通单段 tag，不必添加管道符\n多角色交互时，在对应角色段成对使用 source#动作 / target#动作；双方互相执行同一动作时可各用 mutual#动作\n结构示例（人物特征按剧情填写）：\n2boys, night, city street, two-shot | boy, source#holding hands | boy, target#holding hands\n\n3.动作与交互\n- 普通全局场景与互动气氛放 base\n- 有明确归属的 hugging、holding hands、looking at each other 等动作放各自角色段，使用 source# / target# / mutual# 表明关系\n前三点结合才是一个完整tag。\n\n4.禁止项\n- 禁止使用抽象词：beautiful,cute,amazing\n- 禁止模糊词：nice pose,good lighting,glowing,dominant\n- 禁止跨段共享发色、瞳色、服装、表情与动作归属，禁止把各人的外貌混入 base\n- 禁止过分细致描写tag"
         },
         "children": []
     },
@@ -130,7 +130,7 @@ const definitions = [
         "toggleable": true,
         "defaultEnabled": true,
         "slots": {
-            "body": "15.NSFW:\n- 每个角色：\n  (Name:1.2, 完整外貌 + 服装 + 表情 + 动作)\n- 禁止：\n  - 禁止为性器官添加颜色tag\n  - 不清晰的动作tag\n  - 共用tag\n  - 回避直面色情画面\n- 优先:\n - *将画面对准性器官与性器官(肉棒，阴部，子宫，阴蒂等)*\n - 通过(汗水，翻白眼，吐舌，淫水，睁大眼睛等)刻画细节。\n - 刻画人物表情展现官能色情，重点放在承受方的表情，以及进攻方的阳具\n - 正确描述<user>和<char>的性器官\n - 性玩具的tag精确\n\n- nsfw类型图片突出性交部位和角色表情\n\nNSFW环节重点刻画:人物的性器官、人物表情，人物之间的体型差，年龄差，画面冲突性，特征(胸围等)"
+            "body": "15.NSFW:\n- 多人图使用同一个管道符协议：base | 角色1 prompt | 角色2 prompt\n- 总人数与全局场景放 base，每人的完整外貌、服装、表情和动作放所属角色段；单人仍用普通单段 tag\n- 禁止：\n  - 禁止为性器官添加颜色tag\n  - 不清晰的动作tag\n  - 跨角色段共用外貌、服装或动作 tag\n  - 回避直面色情画面\n- 优先:\n - *将画面对准性器官与性器官(肉棒，阴部，子宫，阴蒂等)*\n - 通过(汗水，翻白眼，吐舌，淫水，睁大眼睛等)刻画细节。\n - 刻画人物表情展现官能色情，重点放在承受方的表情，以及进攻方的阳具\n - 正确描述<user>和<char>的性器官\n - 性玩具的tag精确\n\n- nsfw类型图片突出性交部位和角色表情\n\nNSFW环节重点刻画:人物的性器官、人物表情，人物之间的体型差，年龄差，画面冲突性，特征(胸围等)"
         },
         "children": []
     },
@@ -264,7 +264,7 @@ const definitions = [
         "toggleable": true,
         "defaultEnabled": true,
         "slots": {
-            "body": "2.tag规范\n- 禁止使用自然语言句子\n- tag只能使用英文逗号`,`分割，禁止使用分号`;`\n- 禁止使用模糊或抽象词（如 beautiful, nice, amazing）\n- 优先使用“可视觉化”的具体tag（如：smile → gentle smile / smirk）"
+            "body": "2.tag规范\n- 禁止使用自然语言句子\n- 段内 tag 使用英文逗号`,`分割，禁止使用分号`;`；多人角色段之间使用单管道符 `|`，不要拆成多张图\n- 禁止使用模糊或抽象词（如 beautiful, nice, amazing）\n- 优先使用“可视觉化”的具体tag（如：smile → gentle smile / smirk）"
         },
         "children": []
     },
@@ -278,7 +278,7 @@ const definitions = [
         "toggleable": true,
         "defaultEnabled": true,
         "slots": {
-            "body": "3.角色刻画\n- 是否完整、精确描述每个角色外貌：\n  - 发色、发型、长度、质感\n  - 瞳色\n  - 身形（tall, petite, slim 等）\n- 是否明确服装（仅描述“可见部分”）：\n  - 类型 + 细节（如 school uniform, hoodie, jacket）\n  - 状态（wet clothes, torn clothes, dirty）"
+            "body": "3.角色刻画\n- 是否完整、精确描述每个角色外貌：\n  - 发色、发型、长度、质感\n  - 瞳色\n  - 身形（tall, petite, slim 等）\n- 是否明确服装（仅描述“可见部分”）：\n  - 类型 + 细节（如 school uniform, hoodie, jacket）\n  - 状态（wet clothes, torn clothes, dirty）\n- 多人时每人的外貌与服装是否只放在所属角色段，未混入 base 或其他角色段？"
         },
         "children": []
     },
@@ -292,7 +292,7 @@ const definitions = [
         "toggleable": true,
         "defaultEnabled": true,
         "slots": {
-            "body": "4.多人交互逻辑\n- 是否明确：\n  - 谁是主动方，谁是被动方\n  - 是否存在身高差、体型差\n- 是否避免角色行为混淆（动作、表情归属清晰）\n- 是否避免特征相互污染（发色、服装等）"
+            "body": "4.多人交互逻辑\n- 是否明确：\n  - 谁是主动方，谁是被动方\n  - 是否存在身高差、体型差\n- 是否避免角色行为混淆（动作、表情归属清晰）\n- 是否避免特征相互污染（发色、服装等）\n- source# / target# / mutual# 动作是否写在相应角色段，施受关系是否成对且明确？"
         },
         "children": []
     },
@@ -334,7 +334,7 @@ const definitions = [
         "toggleable": true,
         "defaultEnabled": true,
         "slots": {
-            "body": "7.角色类型规范\n- **著名ACGN角色：是否使用固定名字tag（避免自定义描述/使用a girl 或者a boy）**\n- 原创角色：统一使用 girl / boy + 外貌描述"
+            "body": "7.角色类型规范\n- **著名ACGN角色：是否使用固定名字tag（避免自定义描述/使用a girl 或者a boy）**\n- 原创角色：多人时在各自角色段使用无数字的 girl / boy / other + 外貌描述；同人名字也放所属角色段"
         },
         "children": []
     },
@@ -348,7 +348,7 @@ const definitions = [
         "toggleable": true,
         "defaultEnabled": true,
         "slots": {
-            "body": "8.输出结构检查\n- 是否符合插件本轮「输出格式」条目的结构：可选小标题、独立的 `image###` 图片 tag 块。\n- tag是否完整、连续、无语法错误"
+            "body": "8.输出结构检查\n- 是否符合插件本轮「输出格式」条目的结构：可选小标题、独立的 `image###` 图片 tag 块。\n- tag是否完整、连续、无语法错误\n- 多人是否在同一个 image### 块内使用 base | 角色1 | 角色2，base 与角色段均非空，|| 随机化段已闭合？"
         },
         "children": []
     },
@@ -362,7 +362,7 @@ const definitions = [
         "toggleable": true,
         "defaultEnabled": true,
         "slots": {
-            "body": "9.信息完整性\n- 是否避免过度夸张或破坏美感的特征（例如极端表情:极端大笑，畸形体态:驼背，特别突出的面部特征:黑眼圈）\n- 多人场景：每个角色必须独立tag分组（括号包裹）"
+            "body": "9.信息完整性\n- 是否避免过度夸张或破坏美感的特征（例如极端表情:极端大笑，畸形体态:驼背，特别突出的面部特征:黑眼圈）\n- 多人场景：每个角色是否独占一个 | 分段，外貌与动作归属完整，不跨段共享？"
         },
         "children": []
     },
@@ -425,7 +425,7 @@ const definitions = [
         "toggleable": true,
         "defaultEnabled": true,
         "slots": {
-            "body": "12.必须的总检查\n- boy和girl的数量tag为？动作的承受方和主动方是？\n- 禁止过于繁杂的tag\n- 违背人体生理学的极不合理的身体比例(比如huge penis)\n- 禁止过于狰狞表情的tag\n- 本次输出是否满足配置的正文图片数，并在开启彩蛋时额外输出一张？\n- **若为著名ACGN角色仅使用固定名字tag，不需要发色瞳色服饰等。**"
+            "body": "12.必须的总检查\n- base 中的总人数 tag 为？人数是否与有序角色段数量一致？每段外貌和动作是否归属明确？动作的承受方和主动方是？\n- 禁止过于繁杂的tag\n- 违背人体生理学的极不合理的身体比例(比如huge penis)\n- 禁止过于狰狞表情的tag\n- 本次输出是否满足配置的正文图片数，并在开启彩蛋时额外输出一张？\n- **若为著名ACGN角色仅使用固定名字tag，不需要发色瞳色服饰等。**"
         },
         "children": []
     },
@@ -488,7 +488,7 @@ const definitions = [
         "toggleable": false,
         "defaultEnabled": true,
         "slots": {
-            "body": "image###\n[图片tag]\n###"
+            "body": "image###\n[图片tag]\n###\n多人时 [图片tag] 可以是一行 base | 角色1 | 角色2；所有角色仍在同一个 image### 块内，不为每个角色另开图片块。"
         },
         "children": []
     }

@@ -274,6 +274,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             field(profiles,'NAI 模型',p.model,v=>{p.model=v;p.qualityPreset=resolvePresetId(v,'quality',p.qualityPreset);p.ucPreset=resolvePresetId(v,'uc',p.ucPreset);save();render();},{options:modelOptions});
             const workspace=node('div',undefined,'miao-config-workspace');body.append(workspace);
             const prompts=section(workspace,'提示词');
+            prompts.append(node('p','多人图（V4+）：全局场景 | 人物1 | 人物2。请写入图像提示词；配置正面仅用于全局风格。多人请求使用浏览器直连，请先在「生成」页保存 Key。','miao-muted'));
             const presetBox=node('div',undefined,'miao-prompt-presets');prompts.append(presetBox);
             const presetNames={standard:'Standard',light:'Light',heavy:'Heavy',furryFocus:'Furry Focus',humanFocus:'Human Focus',none:'None'};
             for(const [kind,key,label] of [['quality','qualityPreset','质量 Tags'],['uc','ucPreset','UC 负面预设']]){

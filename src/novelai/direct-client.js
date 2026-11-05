@@ -1,3 +1,4 @@
+import {normalizeNAICharacterRequest} from '../prompts/multi-character.js';
 import {reportNAIFailure} from './nai-diagnostics.js';
 import {generationTimeoutSeconds} from '../generation/generation-timeout.js';
 import {prepareGeneration,sendPrepared} from '../generation/generation-lifecycle.js';
@@ -11,7 +12,11 @@ import {parseNAIImage,payloadSecrets,requestSummary} from './nai-response.js';
 
 export function base64Bytes(bytes){let binary='';for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(binary);}
 export function naiPayload(request,references={}){
-    return {action:'generate',input:request.prompt,model:request.model,parameters:{params_version:3,width:request.width,height:request.height,steps:request.steps,scale:request.scale,seed:request.seed,sampler:request.sampler,noise_schedule:request.scheduler,n_samples:1,negative_prompt:request.negative_prompt,qualityToggle:false,ucPreset:0,sm:false,sm_dyn:false,dynamic_thresholding:false,legacy:false,legacy_v3_extend:false,add_original_image:false,controlnet_strength:1,deliberate_euler_ancestral_bug:false,prefer_brownian:true,cfg_rescale:0,uncond_scale:1,skip_cfg_above_sigma:varietyBoostSigma(request),use_coords:false,characterPrompts:[],...references,v4_prompt:{caption:{base_caption:request.prompt,char_captions:[]},use_coords:false,use_order:true},v4_negative_prompt:{caption:{base_caption:request.negative_prompt,char_captions:[]}}}};
+    request=normalizeNAICharacterRequest(request);
+    // NAI character protocol: AI placement, with matching positive/UC order.
+    const characters=request.naiCharacters||[],center=()=>({x:0.5,y:0.5});
+    const captions=negative=>characters.map(prompt=>({char_caption:negative?'':prompt,centers:[center()]}));
+    return {action:'generate',input:request.prompt,model:request.model,parameters:{params_version:3,width:request.width,height:request.height,steps:request.steps,scale:request.scale,seed:request.seed,sampler:request.sampler,noise_schedule:request.scheduler,n_samples:1,negative_prompt:request.negative_prompt,qualityToggle:false,ucPreset:0,sm:false,sm_dyn:false,dynamic_thresholding:false,legacy:false,legacy_v3_extend:false,add_original_image:false,controlnet_strength:1,deliberate_euler_ancestral_bug:false,prefer_brownian:true,cfg_rescale:0,uncond_scale:1,skip_cfg_above_sigma:varietyBoostSigma(request),use_coords:false,characterPrompts:characters.map(prompt=>({prompt,uc:'',center:center()})),...references,v4_prompt:{caption:{base_caption:request.prompt,char_captions:captions(false)},use_coords:false,use_order:true},v4_negative_prompt:{caption:{base_caption:request.negative_prompt,char_captions:captions(true)}}}};
 }
 export function createDirectClient({settings,save,getHeaders,getKey,unzipPNG,fetchImpl=fetch,onDiagnostic=()=>{},runtime}){
     settings.vibeLibrary??=[];
@@ -58,7 +63,7 @@ export function createDirectClient({settings,save,getHeaders,getKey,unzipPNG,fet
     const prepareGenerate=async(request,scope={})=>{
         scope={...scope,connection:{...(scope.connection||connectionSnapshot(settings))}};
         assertConnection(settings,scope.connection);
-        request=structuredClone(request);
+        request=normalizeNAICharacterRequest(structuredClone(request));
         if(!Array.isArray(request.vibes)||request.vibes.length>4)throw Error('Vibe 列表格式错误，本插件最多启用 4 个');
         const library=[];for(const binding of request.vibes){const item=await read(binding.id);library.push({id:item.id,name:item.name,encodings:item.encodings});}
         const prepared=await prepareNAI('generate-image',naiPayload(request,resolveVibes(request.model,request.vibes,library)),{...scope,summary:request});

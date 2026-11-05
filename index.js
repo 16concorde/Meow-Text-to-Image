@@ -270,7 +270,7 @@ function tagEditor(message,block){
         if(chat!==currentChat()||!live||(live.swipe_id??0)!==swipe)throw Error('聊天或分支已切换，请重新打开提示词');
         if(taskFor(live,block))throw Error('这个 tag 正在生图，请完成后再编辑');
         if(streamActive&&generationChat===chat&&live===latestImageMessage(ctx().chat))throw Error('请等待本次回复输出完成后再编辑');
-        const next=editedTag(live.mes,block,prompt,settings.pattern,reasoningFormat());
+        const next=editedTag(live.mes,block,prompt,settings.pattern,{...reasoningFormat(),model:settings.profiles[settings.active].model});
         buildRequest(settings.profiles[settings.active],next.block.prompt);
         const record=state(live,identity(live,block)),oldText=live.mes;
         live.mes=next.text;if(live.swipes)live.swipes[swipe]=next.text;
@@ -730,7 +730,7 @@ async function requestImage(request,task,canContinue) {
     request=structuredClone(request);
     const valid=()=>{assertKey();return canContinue?.()??true;};
     const onStatus=status=>{if(task){task.status=status;task.onStatus?.(status);renderAll();}};
-    const directRoute=usesDirectGeneration(scope,isTT(),request.vibes);
+    const directRoute=usesDirectGeneration(scope,isTT(),request.vibes,request.naiCharacters);
     const run=async()=>{
         onStatus('准备中');
         const prepared=await prepareGeneration(async()=>{

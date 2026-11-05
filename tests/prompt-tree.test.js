@@ -120,3 +120,15 @@ test('tree revision migration preserves retired text and choices without keeping
  old.textOverridesById={'tags.rules':{body:'CUSTOM TAGS'},egg:{body:'CUSTOM EGG',suffix:'CUSTOM END'},'selfcheck.nsfw':{body:'CUSTOM CHECK'}};
  const original=structuredClone(old),next=migrateTreeSettings(old);assert.deepEqual(old,original);assert.deepEqual(next.treeBackup.config,original);assert.equal(next.enabledById.tags,false);assert.equal(next.enabledById['selfcheck.nsfw'],undefined);assert.equal(next.textOverridesById.tags.body,'CUSTOM TAGS');assert.equal(next.textOverridesById.egg.body,'CUSTOM EGG');assert.equal(next.textOverridesById.egg.suffix,undefined);assert.equal(next.textOverridesById['selfcheck.nsfw'].body,'CUSTOM CHECK');assert.equal(migrateTreeSettings(next),next);
 });
+
+test('NAI pipe defaults keep structural shells and user overrides while checking character ownership',()=>{
+ // Hash changes are limited to the approved multi-character template nodes;
+ // the registry hash test above continues to cover every untouched slot.
+ for(const id of ['composition','egg','tags','nsfw.rules','selfcheck.item2','selfcheck.item8','selfcheck.item9','output.format'])assert.ok(treeById[id].slots.body.includes('|'),id);
+ for(const id of ['composition','egg','tags','nsfw.rules','selfcheck.item9'])assert.ok(!/独立括号|括号包裹|\n\((?:CharacterA|CharacterB|girlA|Name):1\.2/.test(treeById[id].slots.body),id);
+ assert.ok(treeById.tags.slots.body.includes('1.5::English Name::'));assert.ok(treeById.tags.slots.body.includes('source#'));assert.ok(treeById['selfcheck.total'].slots.body.includes('角色段数量'));
+ assert.ok(treeById['output.format'].slots.body.startsWith('image###\n[图片tag]\n###'));
+ const old='MY OLD (Name:1.2, ...) CUSTOM';let c=withTreeText(defaultPromptSettings(),'composition',{body:old});const before=structuredClone(c.textOverridesById);
+ c=migrateTreeSettings(JSON.parse(JSON.stringify(c)));assert.deepEqual(c.textOverridesById,before);assert.equal(treeText(c,'composition'),old);assert.ok(composePrompt(c).includes(old));
+ c=withTreeText(c,'composition',{body:treeById.composition.slots.body});assert.equal(c.textOverridesById.composition,undefined);
+});

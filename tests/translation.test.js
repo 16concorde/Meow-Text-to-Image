@@ -65,3 +65,9 @@ test('Microsoft translation requires an explicit provider choice and has a separ
     assert.deepEqual(calls,['/api/translate/google','/api/translate/bing']);
     await assert.rejects(client('cat',undefined,{provider:'other'}),/不支持/);
 });
+
+test('translation receives the complete pipe prompt but its result cannot mutate the generation source',async()=>{
+ const raw='2boys, ||day|night|| | boy, source#hug | boy, target#hug',calls=[];
+ const translate=createPromptTranslator({getHeaders:()=>({}),fetchImpl:async(_url,options)=>{calls.push(JSON.parse(options.body).text);return new Response('译文 | 人物一 | 人物二');}});
+ assert.equal(await translate(raw),'译文 | 人物一 | 人物二');assert.deepEqual(calls,[raw]);assert.equal(raw,'2boys, ||day|night|| | boy, source#hug | boy, target#hug');
+});

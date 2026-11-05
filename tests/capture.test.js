@@ -84,3 +84,9 @@ test('streamed raw reasoning and host-separated reasoning capture only actual bo
  assert.deepEqual(message,original);
  assert.deepEqual(parseBodyBlocks('<think>image###fake###</think>image###real###').map(b=>b.prompt),['real']);
 });
+
+test('multi-character pipes and interaction hashes stay in one closed capture through streaming',()=>{
+ const raw='2boys, ||day|night|| | boy, source#hug | boy, target#hug',prefix='<imgthink>image###hidden | boy###</imgthink>before ',text=prefix+'image###'+raw+'###';
+ for(let end=0;end<text.length;end++)assert.deepEqual(parseBodyBlocks(text.slice(0,end)),[],`stream offset ${end}`);
+ const blocks=parseBodyBlocks(text);assert.equal(blocks.length,1);assert.equal(blocks[0].prompt,raw);assert.equal(blocks[0].start,prefix.length);
+});

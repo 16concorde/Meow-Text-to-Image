@@ -55,3 +55,13 @@ test('official stealth alpha metadata is decoded without file chunk output',asyn
  assert.equal(info.model,'V5 Full');assert.equal(info.prompt,'隐藏提示词 🌸');assert.equal(info.parameters.seed,42);
  assert.equal(await readStealthMetadata({data:new Uint8Array(width*height*4),width,height}),null);
 });
+
+test('multi-character request snapshots and PNG captions retain base plus every ordered character',async()=>{
+ const saved={request:{model:'nai-diffusion-4-5-full',prompt:'front, global base, back',negative_prompt:'global negative',naiCharacters:['boy, first','boy, last']},tagPrompt:'global base | boy, first | boy, last'};
+ const local=generationInfo({text:[]},JSON.parse(JSON.stringify(saved)));
+ assert.equal(local.prompt,saved.request.prompt);assert.deepEqual(local.characters.map(c=>c.positive),saved.request.naiCharacters);assert.deepEqual(local.characters.map(c=>c.negative),['','']);
+ const caption={base_caption:'PNG base',char_captions:saved.request.naiCharacters.map(char_caption=>({char_caption,centers:[{x:.5,y:.5}]}))};
+ const metadata=await readImageMetadata(png(chunk('tEXt','Comment\0'+JSON.stringify({v4_prompt:{caption},v4_negative_prompt:{caption:{base_caption:'PNG UC',char_captions:caption.char_captions.map(c=>({...c,char_caption:''}))}}}))));
+ const info=generationInfo(metadata,saved);assert.equal(info.prompt,'PNG base');assert.equal(info.negative,'PNG UC');assert.deepEqual(info.characters.map(c=>c.positive),['boy, first','boy, last']);
+ assert.equal(generationInfo({text:[]},{request:{prompt:'old single'}}).prompt,'old single');assert.deepEqual(generationInfo({text:[]},{request:{prompt:'old single'}}).characters,[]);
+});

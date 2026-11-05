@@ -1,4 +1,5 @@
 import {applyNovelAIPresets,resolvePresetId} from '../novelai/novelai-presets.js';
+import {parseNAICharacterSegments,scanNAIPipes} from '../prompts/multi-character.js';
 export const defaults = {name:'默认',positive:'best quality, masterpiece',positiveSuffix:'',negative:'lowres, bad anatomy, text, watermark',qualityPreset:'standard',ucPreset:'heavy',model:'nai-diffusion-4-5-full',sampler:'k_euler_ancestral',scheduler:'karras',width:512,height:512,steps:20,scale:5,seed:-1,varietyBoost:false,vibeMode:'multiple',vibeEnabled:true};
 export function supportsVarietyBoost(model){return ['nai-diffusion-3','nai-diffusion-furry-3','nai-diffusion-4-full','nai-diffusion-4-curated-preview','nai-diffusion-4-5-full','nai-diffusion-4-5-curated'].includes(model);}
 export function varietyBoostSigma(request){
@@ -150,7 +151,13 @@ export function buildRequest(profile, prompt) {
     if (!Number.isInteger(+p.steps) || +p.steps<1 || +p.steps>50) throw new Error('步数须为 1～50');
     if (!Number.isFinite(+p.scale) || +p.scale<0 || +p.scale>10) throw new Error('Guidance 须为 0～10');
     if (!Number.isInteger(+p.seed) || +p.seed < -1 || +p.seed > 4294967295) throw new Error('种子须为 -1 或 0～4294967295');
-    const positive=[p.positive,prompt,p.positiveSuffix].map(s=>s.trim()).filter(Boolean).map(s=>s.endsWith(',')?s:`${s},`).join('\n');
+    for(const value of [p.positive,p.positiveSuffix]){
+        const pipes=scanNAIPipes(value);
+        if(pipes.separators.length)throw Error('请将多角色分隔符写入 AI 输出或本次图像提示词；配置正面只用于全局风格');
+        if(pipes.unclosed)throw Error('配置正面中的 || 随机化段未闭合');
+    }
+    const segments=parseNAICharacterSegments(prompt,p.model);
+    const positive=[p.positive,segments.base,p.positiveSuffix].map(s=>s.trim()).filter(Boolean).map(s=>s.endsWith(',')?s:`${s},`).join('\n');
     const prepared=applyNovelAIPresets(p,positive,p.negative);
-    return {prompt:prepared.prompt,negative_prompt:prepared.negative,model:p.model,sampler:p.sampler,scheduler:p.scheduler,width:+p.width,height:+p.height,steps:+p.steps,scale:+p.scale,seed:+p.seed<0?Math.floor(Math.random()*4294967296):+p.seed,sm:false,sm_dyn:false,upscale_ratio:1,decrisper:false,variety_boost:p.varietyBoost===true&&supportsVarietyBoost(p.model)};
+    return {prompt:prepared.prompt,negative_prompt:prepared.negative,model:p.model,sampler:p.sampler,scheduler:p.scheduler,width:+p.width,height:+p.height,steps:+p.steps,scale:+p.scale,seed:+p.seed<0?Math.floor(Math.random()*4294967296):+p.seed,sm:false,sm_dyn:false,upscale_ratio:1,decrisper:false,variety_boost:p.varietyBoost===true&&supportsVarietyBoost(p.model),...(segments.hasCharacters?{naiCharacters:segments.characters}:{})};
 }

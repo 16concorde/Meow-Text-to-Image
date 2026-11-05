@@ -1,4 +1,5 @@
 // NovelAI public image client, checked 2026-10-27. See docs/novelai-presets.md.
+import {scanNAIPipes} from '../prompts/multi-character.js';
 const presets = {
     "nai-diffusion-5-full": {"quality":[{"id":"standard","name":"standard","suffix":"very aesthetic, masterpiece, no text"},{"id":"light","name":"light","suffix":"very aesthetic, amazing quality, no text"},{"id":"none","name":"none"}],"uc":[{"id":"heavy","name":"heavy","category":"heavy","prefix":"lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page"},{"id":"light","name":"light","category":"light","prefix":"lowres, bad hands, bad anatomy, artistic error, sepia, white haze, worst quality, very displeasing, jpeg artifacts, 0::ai-generated::"},{"id":"furryFocus","name":"furryFocus","category":"furry","prefix":"{worst quality}, distracting watermark, unfinished, bad quality, {widescreen}, upscale, {sequence}, {{grandfathered content}}, blurred foreground, chromatic aberration, sketch, everyone, [sketch background], simple, [flat colors], ych (character), outline, multiple scenes, [[horror (theme)]], comic"},{"id":"humanFocus","name":"humanFocus","category":"human","prefix":"lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy"},{"id":"none","name":"none","category":"none"}]},
     "nai-diffusion-5-curated": {"quality":[{"id":"standard","name":"standard","suffix":"very aesthetic, masterpiece, no text"},{"id":"light","name":"light","suffix":"very aesthetic, amazing quality, no text"},{"id":"none","name":"none"}],"uc":[{"id":"heavy","name":"heavy","category":"heavy","prefix":"lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page"},{"id":"light","name":"light","category":"light","prefix":"lowres, bad hands, bad anatomy, artistic error, sepia, white haze, worst quality, very displeasing, jpeg artifacts, 0::ai-generated::"},{"id":"furryFocus","name":"furryFocus","category":"furry","prefix":"{worst quality}, distracting watermark, unfinished, bad quality, {widescreen}, upscale, {sequence}, {{grandfathered content}}, blurred foreground, chromatic aberration, sketch, everyone, [sketch background], simple, [flat colors], ych (character), outline, multiple scenes, [[horror (theme)]], comic"},{"id":"humanFocus","name":"humanFocus","category":"human","prefix":"lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy"},{"id":"none","name":"none","category":"none"}]},
@@ -22,12 +23,7 @@ const join=(left,right)=>left.trimEnd()?`${left.trimEnd().replace(/,+$/,'')}, ${
 // V4+ applies quality only to the base caption, before text:, and UC only
 // to the first |-segment. Preserve quoted ||...|| prompt chunks verbatim.
 function baseEnd(prompt){
-    let quoted=false;
-    for(let i=0;i<prompt.length;i++)if(prompt[i]==='|'){
-        if(prompt[i+1]==='|'){quoted=!quoted;i++;}
-        else if(!quoted)return i;
-    }
-    return prompt.length;
+    return scanNAIPipes(prompt).separators[0]??prompt.length;
 }
 function addQuality(prompt,preset,modern){
     if(!preset.suffix)return prompt;

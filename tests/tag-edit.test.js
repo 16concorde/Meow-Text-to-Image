@@ -21,3 +21,15 @@ test('moving edited-tag history retains versions and per-image prompts across sa
  assert.equal(readSwipeImage(saved,0,from),undefined);assert.equal(readSwipeImage(saved,0,to).versions.length,2);assert.equal(readSwipeImage(saved,1,from).url,'other-swipe.png');assert.equal(saved.extra.unrelated,'keep');
  assert.equal(saved.extra.miao_nai_image['0:'+from],undefined);assert.equal(saved.swipe_info[0].extra.miao_nai_image['0:'+from],undefined);
 });
+
+test('editing character pipes is atomic, model-aware and preserves duplicate blocks and swipe history',()=>{
+ const text='before image###cat### middle image###cat### after',block=parseBodyBlocks(text,pattern)[1],raw='2boys | boy, source#hug | boy, target#hug';
+ const result=editedTag(text,block,raw,pattern,{model:'nai-diffusion-4-5-full'});
+ assert.equal(result.text,'before image###cat### middle image###'+raw+'### after');assert.equal(result.block.bodyIndex,1);
+ for(const prompt of ['base | boy |','base ||unclosed'])assert.throws(()=>editedTag(text,block,prompt,pattern),/不能为空|未闭合/);
+ assert.throws(()=>editedTag(text,block,raw,pattern,{model:'nai-diffusion-3'}),/不支持多角色/);
+ const crowd='7boys'+Array(7).fill(' | boy').join('');assert.equal(editedTag(text,block,crowd,pattern,{model:'nai-diffusion-5-full'}).block.prompt,crowd);
+ const message={mes:result.text,swipe_id:0,extra:{}},request={prompt:'global base',naiCharacters:['boy, source#hug','boy, target#hug']};
+ writeSwipeImage(message,0,'body:1:'+raw,{tagPrompt:raw,request});const saved=readSwipeImage(JSON.parse(JSON.stringify(message)),0,'body:1:'+raw);
+ assert.equal(saved.tagPrompt,raw);assert.deepEqual(saved.request,request);assert.equal(text,'before image###cat### middle image###cat### after');
+});

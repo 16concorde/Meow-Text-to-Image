@@ -1,9 +1,11 @@
+import {parseNAICharacterSegments} from './multi-character.js';
 import {parseBodyBlocks} from '../core/core.js';
 
 // Change only the first capture of this exact occurrence. Reject delimiters
 // that would split one tag into several tags or consume a neighbouring tag.
 export function editedTag(text,block,prompt,pattern,format={}){
     prompt=String(prompt).trim();if(!prompt)throw Error('提示词不能为空');
+    parseNAICharacterSegments(prompt,format.model??'nai-diffusion-4-5-full');
     const before=parseBodyBlocks(text,pattern,format),current=before.find(item=>item.start===block.start&&item.raw===block.raw);
     if(!current)throw Error('原 tag 已变化，请重新打开提示词');
     let match;try{match=new RegExp(pattern,'id').exec(current.raw);}catch{match=new RegExp(pattern,'i').exec(current.raw);}
