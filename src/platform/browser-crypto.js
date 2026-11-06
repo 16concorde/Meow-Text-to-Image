@@ -11,6 +11,10 @@ const rotate=(x,n)=>(x>>>n)|(x<<(32-n));
 export async function sha256(text,cryptoImpl=globalThis.crypto){
     const input=new TextEncoder().encode(text);
     if(cryptoImpl?.subtle){const hash=await cryptoImpl.subtle.digest('SHA-256',input);return Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('');}
+    return sha256Sync(text);
+}
+export function sha256Sync(text){
+    const input=new TextEncoder().encode(text);
     const bytes=new Uint8Array(Math.ceil((input.length+9)/64)*64);bytes.set(input);bytes[input.length]=128;
     const data=new DataView(bytes.buffer),bits=input.length*8;data.setUint32(bytes.length-8,Math.floor(bits/0x100000000));data.setUint32(bytes.length-4,bits>>>0);
     const hash=[0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19],words=new Uint32Array(64);

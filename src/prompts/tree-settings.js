@@ -4,7 +4,7 @@ import {promptTemplates} from './prompt-templates.js';
 
 export const paramNames = Object.freeze({persona:'人格', target:'对象', count:'张数', eggMarker:'彩蛋标签'});
 export function defaultTreeSettings(mode = 'builtin') {
-    return {version:2, treeRevision:3, mode, nsfwTrigger:{keywords:[...defaultNsfwKeywords]}, params:{persona:'ELLA', target:'User', count:'2~3', eggMarker:'/meow_FM'},
+    return {version:2, treeRevision:4, tagMode:'full', mode, nsfwTrigger:{keywords:[...defaultNsfwKeywords]}, params:{persona:'ELLA', target:'User', count:'2~3', eggMarker:'/meow_FM'},
         enabledById:Object.fromEntries(promptTree.filter(n => n.toggleable).map(n => [n.nodeId, n.defaultEnabled])),
         textOverridesById:{}, orientation:''};
 }
@@ -18,15 +18,26 @@ export function hasLegacyCustomizations(config) {
 export function migrateTreeSettings(config, {adoptTree = false} = {}) {
     if (!config) return defaultTreeSettings();
     if (config.version === 2) {
-        if (config.treeRevision === 3) { validateTreeSettings(config); return config; }
+        if (config.treeRevision === 4) { validateTreeSettings(config); return config; }
+        if (config.treeRevision === 3) {
+            const next={...config,treeRevision:4,tagMode:config.tagMode??'full',textOverridesById:structuredClone(config.textOverridesById||{})};
+            if(next.textOverridesById.tags?.body!==undefined){
+                next.textOverridesById['tags.full']={...next.textOverridesById['tags.full'],body:next.textOverridesById.tags.body};
+                delete next.textOverridesById.tags;
+            }
+            validateTreeSettings(next);return next;
+        }
         if (config.treeRevision === 2) {
             const next = {...config, treeRevision:3, nsfwTrigger:config.nsfwTrigger === undefined ? {keywords:[...defaultNsfwKeywords]} : structuredClone(config.nsfwTrigger)};
-            validateTreeSettings(next); return next;
+            return migrateTreeSettings(next);
         }
         if (config.treeRevision !== undefined && config.treeRevision !== 1) throw Error('不支持的提示词树版本，原配置已保留');
         const next = {...config, treeRevision:2, enabledById:{...config.enabledById}, textOverridesById:structuredClone(config.textOverridesById || {})};
-        if (Object.hasOwn(config, 'treeBackup')) next.treeUpgradeBackup = {revision:1, config:structuredClone(config)};
-        else next.treeBackup = {revision:1, config:structuredClone(config)};
+        const retired={revision:1,retiredText:{}};
+        if(config.textOverridesById?.egg?.suffix!==undefined)retired.retiredText.eggSuffix=config.textOverridesById.egg.suffix;
+        if(config.textOverridesById?.tags?.body!==undefined&&config.textOverridesById?.['tags.rules']?.body!==undefined&&config.textOverridesById.tags.body!==config.textOverridesById['tags.rules'].body)retired.retiredText.tagsBody=config.textOverridesById.tags.body;
+        if (Object.hasOwn(config, 'treeBackup')) next.treeUpgradeBackup = retired;
+        else next.treeBackup = retired;
         if (typeof next.enabledById['tags.rules'] === 'boolean') next.enabledById.tags = savedEnabled(config, 'tags') && next.enabledById['tags.rules'];
         delete next.enabledById['tags.rules']; delete next.enabledById['selfcheck.nsfw'];
         if (next.textOverridesById['tags.rules']?.body !== undefined) next.textOverridesById.tags = {...next.textOverridesById.tags, body:next.textOverridesById['tags.rules'].body};
@@ -48,6 +59,7 @@ export function migrateTreeSettings(config, {adoptTree = false} = {}) {
 }
 
 export function validateTreeSettings(config) {
+    if (!['full','binding'].includes(config.tagMode)) throw Error('Tag 模式无效');
     if (config.version !== 2 || !['builtin','external'].includes(config.mode) || !orientations.includes(config.orientation)) throw Error('提示词配置无效');
     if (!config.nsfwTrigger || typeof config.nsfwTrigger !== 'object') throw Error('NSFW 触发配置无效，原配置已保留');
     validateNsfwKeywords(config.nsfwTrigger.keywords);
@@ -88,6 +100,7 @@ export function savedEnabled(config, id) {
 }
 export function effectiveEnabled(config, id) {
     const node = treeById[id];
+    if (id==='tags.full' && config.tagMode!=='full' || id==='tags.binding' && config.tagMode!=='binding') return false;
     if (!savedEnabled(config, id)) return false;
     if (node.parentId && !effectiveEnabled(config, node.parentId)) return false;
     if (node.condition?.some(key => !effectiveEnabled(config, key))) return false;

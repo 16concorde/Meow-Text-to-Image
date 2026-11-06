@@ -10,7 +10,7 @@ const files=directory=>readdirSync(directory,{withFileTypes:true}).flatMap(entry
 const imports=text=>[...text.matchAll(/\b(?:from\s*|import\s*\(\s*)(['"])([^'"\n]+)\1/g)].map(match=>match[2]);
 
 test('extension entry resolves every local module and keeps host imports at the host scripts directory',()=>{
-    const allowedHost=new Set(['extensions.js','utils.js','secrets.js','user.js','popup.js','world-info.js','extensions/regex/engine.js','../script.js']);
+    const allowedHost=new Set(['extensions.js','personas.js','utils.js','secrets.js','user.js','popup.js','world-info.js','extensions/regex/engine.js','../script.js']);
     const visited=new Set();
     const walk=file=>{
         if(visited.has(file))return;visited.add(file);

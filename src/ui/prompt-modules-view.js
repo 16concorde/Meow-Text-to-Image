@@ -17,7 +17,7 @@ export function createPromptModulesView({settings,save,onError,parent,expanded=n
         try{const pending=save(next);paint();await pending;}catch(error){onError(error);}finally{busy=false;paint();}
     }
     function paint(){
-        for(const {item,branch,status,toggle,select,expand,children,keywords} of states){
+        for(const {item,branch,status,toggle,select,radio,expand,children,keywords} of states){
             const config=settings.promptConfig,active=effectiveEnabled(config,item.nodeId);
             branch.hidden=!!item.parentId&&(!effectiveEnabled(config,item.parentId)||!!item.condition?.some(id=>!effectiveEnabled(config,id)));
             if(children){
@@ -32,6 +32,7 @@ export function createPromptModulesView({settings,save,onError,parent,expanded=n
             if(item.condition)status.textContent+='（依赖'+item.condition.map(id=>treeById[id].label).join('、')+'）';
             if(toggle){toggle.checked=savedEnabled(config,item.nodeId);toggle.disabled=busy;}
             if(select){select.value=config.orientation;select.disabled=busy;}
+            if(radio){radio.checked=active;radio.disabled=busy;}
             keywords?.refresh();
         }
     }
@@ -48,7 +49,11 @@ export function createPromptModulesView({settings,save,onError,parent,expanded=n
             item.children.forEach(child=>append(child,children,depth+1));
         }
         const status=node('span','','miao-muted miao-tree-status');row.append(status);
-        let toggle,select;
+        let toggle,select,radio;
+        if(id==='tags.full'||id==='tags.binding'){
+            radio=node('input');radio.type='radio';radio.name='miao-tag-mode';radio.setAttribute('aria-label','选择'+item.label);
+            radio.onchange=()=>{void commit({...settings.promptConfig,tagMode:id==='tags.full'?'full':'binding'});};actions.append(radio);
+        }
         if(item.toggleable){
             const wrap=node('label',undefined,'miao-prompt-switch');toggle=node('input');toggle.type='checkbox';toggle.setAttribute('role','switch');toggle.setAttribute('aria-label','启用'+item.label);wrap.append(toggle,node('span',undefined,'miao-prompt-switch-track'));actions.append(wrap);
             toggle.onchange=()=>{void commit(withTreeEnabled(settings.promptConfig,id,toggle.checked));};
@@ -62,7 +67,7 @@ export function createPromptModulesView({settings,save,onError,parent,expanded=n
             for(const [value,text] of [['','不指定'],['BG','BG'],['BL','BL'],['GL','GL'],['INTERSEX','双性']]){const option=node('option',text);option.value=value;select.append(option);}
             select.onchange=()=>{void commit({...settings.promptConfig,orientation:select.value});};choice.append(select);branch.append(choice);
         }
-        states.push({item,branch,status,toggle,select,expand,children,keywords});
+        states.push({item,branch,status,toggle,select,radio,expand,children,keywords});
     }
     treeRoots.forEach(id=>append(id,root));paint();return root;
 

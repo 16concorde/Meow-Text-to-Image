@@ -16,9 +16,9 @@ test('fixed registry has explicit three-level parents and preserves all 31 appro
  assert.deepEqual(treeRoots.map(id=>treeById[id].displayId),['00','01','02','03','04','05']);
  assert.equal(treeById['selfcheck.egg'].parentId,'selfcheck');assert.equal(treeById['egg.description'].parentId,'egg');
  assert.deepEqual(treeById.selfcheck.children.slice(-4),['selfcheck.item10','selfcheck.egg','selfcheck.nsfw','selfcheck.total']);
- assert.deepEqual(treeById.composition.children,['egg']);assert.equal(treeById.egg.parentId,'composition');assert.equal(treeById.egg.displayId,'01.01');assert.deepEqual(treeById.tags.children,[]);assert.deepEqual(Object.keys(treeById.composition.slots),['body']);
+ assert.deepEqual(treeById.composition.children,['egg']);assert.equal(treeById.egg.parentId,'composition');assert.equal(treeById.egg.displayId,'01.01');assert.deepEqual(treeById.tags.children,['tags.full','tags.binding']);assert.deepEqual(Object.keys(treeById.composition.slots),['body']);
  assert.equal(Object.keys(source).length,31);let slots=0;
- for(const node of promptTree)slots+=Object.keys(node.slots).length;assert.equal(slots,31);
+ for(const node of promptTree)slots+=Object.keys(node.slots).length;assert.equal(slots,32);
  for(const [displayId,{nodeId,slot,sha256}] of Object.entries(source)){
   const body=treeById[nodeId].slots[slot];assert.equal(createHash('sha256').update(body).digest('hex'),sha256,displayId+' changed');
  }
@@ -34,7 +34,7 @@ test('default tree composes plain text, one parameter block and fixed shells wit
  assert.equal((text.match(/User：ELLA/g)||[]).length,1);assert.equal((text.match(/彩蛋应生成在\/meow_FM后/g)||[]).length,1);
  assert.ok(text.startsWith('---\n\n<imageTag>\n\n'));assert.ok(text.endsWith('</imageTag>\n\n---'));
  assert.ok(!/\{\{(?:setvar|getvar|setglobalvar|getglobalvar|insert|slot)/.test(text));assert.ok(!text.includes('parentId'));assert.ok(!text.includes('04.EGG'));
- assert.ok(!text.includes('完成彩蛋任务。'));assert.ok(text.indexOf(treeById.composition.slots.body)<text.indexOf(treeById.egg.slots.body));assert.ok(text.indexOf(treeById.egg.slots.body)<text.indexOf(treeById.tags.slots.body));assert.ok(text.indexOf('## 自检')<text.indexOf('## 图片标准格式为:'));
+ assert.ok(!text.includes('完成彩蛋任务。'));assert.ok(text.indexOf(treeById.composition.slots.body)<text.indexOf(treeById.egg.slots.body));assert.ok(text.indexOf(treeById.egg.slots.body)<text.indexOf(treeById['tags.full'].slots.body));assert.ok(text.indexOf('## 自检')<text.indexOf('## 图片标准格式为:'));
  assert.equal(composePrompt(config),text);assert.deepEqual(config,before);
  const other=defaultPromptSettings();other.params.persona='OTHER';assert.ok(composePrompt(other).includes('User：OTHER'));assert.equal(composePrompt(config),text);
  // Incoming settings cannot replace, reorder or insert registry nodes.
@@ -118,15 +118,15 @@ test('revised task sentence and continuous output format match the requested tex
 test('tree revision migration preserves retired text and choices without keeping obsolete controls',()=>{
  const old=defaultPromptSettings();delete old.treeRevision;old.enabledById['tags.rules']=false;old.enabledById['selfcheck.nsfw']=false;
  old.textOverridesById={'tags.rules':{body:'CUSTOM TAGS'},egg:{body:'CUSTOM EGG',suffix:'CUSTOM END'},'selfcheck.nsfw':{body:'CUSTOM CHECK'}};
- const original=structuredClone(old),next=migrateTreeSettings(old);assert.deepEqual(old,original);assert.deepEqual(next.treeBackup.config,original);assert.equal(next.enabledById.tags,false);assert.equal(next.enabledById['selfcheck.nsfw'],undefined);assert.equal(next.textOverridesById.tags.body,'CUSTOM TAGS');assert.equal(next.textOverridesById.egg.body,'CUSTOM EGG');assert.equal(next.textOverridesById.egg.suffix,undefined);assert.equal(next.textOverridesById['selfcheck.nsfw'].body,'CUSTOM CHECK');assert.equal(migrateTreeSettings(next),next);
+ const original=structuredClone(old),next=migrateTreeSettings(old);assert.deepEqual(old,original);assert.equal(next.treeBackup.retiredText.eggSuffix,'CUSTOM END');assert.equal(next.treeBackup.config,undefined);assert.equal(next.enabledById.tags,false);assert.equal(next.enabledById['selfcheck.nsfw'],undefined);assert.equal(next.textOverridesById['tags.full'].body,'CUSTOM TAGS');assert.equal(next.textOverridesById.egg.body,'CUSTOM EGG');assert.equal(next.textOverridesById.egg.suffix,undefined);assert.equal(next.textOverridesById['selfcheck.nsfw'].body,'CUSTOM CHECK');assert.equal(migrateTreeSettings(next),next);
 });
 
 test('NAI pipe defaults keep structural shells and user overrides while checking character ownership',()=>{
  // Hash changes are limited to the approved multi-character template nodes;
  // the registry hash test above continues to cover every untouched slot.
- for(const id of ['composition','egg','tags','nsfw.rules','selfcheck.item2','selfcheck.item8','selfcheck.item9','output.format'])assert.ok(treeById[id].slots.body.includes('|'),id);
- for(const id of ['composition','egg','tags','nsfw.rules','selfcheck.item9'])assert.ok(!/独立括号|括号包裹|\n\((?:CharacterA|CharacterB|girlA|Name):1\.2/.test(treeById[id].slots.body),id);
- assert.ok(treeById.tags.slots.body.includes('1.5::English Name::'));assert.ok(treeById.tags.slots.body.includes('source#'));assert.ok(treeById['selfcheck.total'].slots.body.includes('角色段数量'));
+ for(const id of ['composition','egg','tags.full','nsfw.rules','selfcheck.item2','selfcheck.item8','selfcheck.item9','output.format'])assert.ok(treeById[id].slots.body.includes('|'),id);
+ for(const id of ['composition','egg','tags.full','nsfw.rules','selfcheck.item9'])assert.ok(!/独立括号|括号包裹|\n\((?:CharacterA|CharacterB|girlA|Name):1\.2/.test(treeById[id].slots.body),id);
+ assert.ok(treeById['tags.full'].slots.body.includes('1.5::English Name::'));assert.ok(treeById['tags.full'].slots.body.includes('source#'));assert.ok(treeById['selfcheck.total'].slots.body.includes('角色段数量'));
  assert.ok(treeById['output.format'].slots.body.startsWith('image###\n[图片tag]\n###'));
  const old='MY OLD (Name:1.2, ...) CUSTOM';let c=withTreeText(defaultPromptSettings(),'composition',{body:old});const before=structuredClone(c.textOverridesById);
  c=migrateTreeSettings(JSON.parse(JSON.stringify(c)));assert.deepEqual(c.textOverridesById,before);assert.equal(treeText(c,'composition'),old);assert.ok(composePrompt(c).includes(old));

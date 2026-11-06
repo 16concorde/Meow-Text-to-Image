@@ -30,7 +30,7 @@
     "sha256": "b15af29195a0d922fd91039d18e68c62f76e8383dd637722e30c789d40f1db47"
   },
   "02.TEXT": {
-    "nodeId": "tags",
+    "nodeId": "tags.full",
     "slot": "body",
     "sha256": "845aed251d6bc8a98e2245d16ff6fa07e7763b45bf28b783fd00bea7d9197053"
   },

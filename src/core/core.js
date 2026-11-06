@@ -1,3 +1,4 @@
+import {resolveBindingPrompt} from '../prompts/character-binding-prompt.js';
 import {applyNovelAIPresets,resolvePresetId} from '../novelai/novelai-presets.js';
 import {parseNAICharacterSegments,scanNAIPipes} from '../prompts/multi-character.js';
 export const defaults = {name:'默认',positive:'best quality, masterpiece',positiveSuffix:'',negative:'lowres, bad anatomy, text, watermark',qualityPreset:'standard',ucPreset:'heavy',model:'nai-diffusion-4-5-full',sampler:'k_euler_ancestral',scheduler:'karras',width:512,height:512,steps:20,scale:5,seed:-1,varietyBoost:false,vibeMode:'multiple',vibeEnabled:true};
@@ -144,7 +145,7 @@ export function delimiterPattern(start,end) {
     // Never use the closing portion of a NEW opening tag to close an older one.
     return `${escape(start)}((?:(?!${escape(start)})[\\s\\S])*?)${escape(end)}`;
 }
-export function buildRequest(profile, prompt) {
+export function buildRequest(profile, prompt, bindings=[]) {
     const p = normalizeProfile(profile);
     for (const key of ['width','height']) if (!Number.isInteger(+p[key]) || +p[key]<64 || +p[key]>2048 || +p[key]%64) throw new Error('宽高须为 64～2048 的 64 倍数');
     if (+p.width * +p.height > 2097152) throw new Error('画布总像素不能超过 2097152');
@@ -156,8 +157,8 @@ export function buildRequest(profile, prompt) {
         if(pipes.separators.length)throw Error('请将多角色分隔符写入 AI 输出或本次图像提示词；配置正面只用于全局风格');
         if(pipes.unclosed)throw Error('配置正面中的 || 随机化段未闭合');
     }
-    const segments=parseNAICharacterSegments(prompt,p.model);
+    const segments=resolveBindingPrompt(prompt,p.model,bindings);
     const positive=[p.positive,segments.base,p.positiveSuffix].map(s=>s.trim()).filter(Boolean).map(s=>s.endsWith(',')?s:`${s},`).join('\n');
     const prepared=applyNovelAIPresets(p,positive,p.negative);
-    return {prompt:prepared.prompt,negative_prompt:prepared.negative,model:p.model,sampler:p.sampler,scheduler:p.scheduler,width:+p.width,height:+p.height,steps:+p.steps,scale:+p.scale,seed:+p.seed<0?Math.floor(Math.random()*4294967296):+p.seed,sm:false,sm_dyn:false,upscale_ratio:1,decrisper:false,variety_boost:p.varietyBoost===true&&supportsVarietyBoost(p.model),...(segments.hasCharacters?{naiCharacters:segments.characters}:{})};
+    return {prompt:prepared.prompt,negative_prompt:prepared.negative,model:p.model,sampler:p.sampler,scheduler:p.scheduler,width:+p.width,height:+p.height,steps:+p.steps,scale:+p.scale,seed:+p.seed<0?Math.floor(Math.random()*4294967296):+p.seed,sm:false,sm_dyn:false,upscale_ratio:1,decrisper:false,variety_boost:p.varietyBoost===true&&supportsVarietyBoost(p.model),...(segments.hasCharacters?{naiCharacters:segments.characters,...(segments.used.length?{naiCharacterNegatives:segments.negatives}:{})}:{})};
 }

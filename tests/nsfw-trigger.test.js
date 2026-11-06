@@ -37,7 +37,7 @@ test('one runtime gate opens rules, selected orientation and check together with
  const c=withTreeEnabled(defaultPromptSettings(),'nsfw',true);assert.equal(composePrompt(c).includes(treeById['nsfw.rules'].slots.body),false);assert.equal(composePrompt({...c,mode:'external'},{nsfwMatched:true}),'');
 });
 test('revision 1/2/3 migration is idempotent and preserves existing trigger lists and backups',()=>{
- const c=defaultPromptSettings();assert.equal(c.treeRevision,3);assert.deepEqual(c.nsfwTrigger.keywords,[...defaultNsfwKeywords]);
+ const c=defaultPromptSettings();assert.equal(c.treeRevision,4);assert.deepEqual(c.nsfwTrigger.keywords,[...defaultNsfwKeywords]);
  for(const treeRevision of [undefined,1,2]){
   const old={...c,treeRevision,nsfwTrigger:{keywords:[]},legacyBackup:{fixture:'keep'},treeBackup:{fixture:'keep'}};const before=structuredClone(old),next=migrateTreeSettings(old);assert.deepEqual(old,before);assert.deepEqual(next.nsfwTrigger.keywords,[]);assert.deepEqual(next.legacyBackup,old.legacyBackup);assert.deepEqual(next.treeBackup,old.treeBackup);assert.equal(migrateTreeSettings(next),next);
   const missing={...old};delete missing.nsfwTrigger;assert.deepEqual(migrateTreeSettings(missing).nsfwTrigger.keywords,[...defaultNsfwKeywords]);

@@ -28,6 +28,8 @@ export function parseNAICharacterSegments(rawPrompt,model){
 // Validate snapshots/direct callers before key reads, queue admission or POST.
 export function normalizeNAICharacterRequest(request){
     const parsed=parseNAICharacterSegments(request.prompt??'',request.model);
+    for(const segment of [parsed.base,...parsed.characters])if(/^[UC]\d+(?:,|$)/.test(segment.trim()))throw Error('请求中存在未解析的绑定 ID，请编辑本次 Tag');
+    if(request.naiCharacters===undefined&&request.naiCharacterNegatives!==undefined)throw Error('角色负面缺少对应正面数组');
     if(request.naiCharacters===undefined)return parsed.hasCharacters?{...request,prompt:parsed.base,naiCharacters:parsed.characters}:request;
     const characters=request.naiCharacters,limit=naiCharacterLimit(request.model);
     if(!Array.isArray(characters)||!characters.length||!limit||characters.length>limit)throw Error('多角色请求的角色列表或模型上限无效');
@@ -35,5 +37,7 @@ export function normalizeNAICharacterRequest(request){
     for(const character of characters){
         if(typeof character!=='string'||!character.trim()||parseNAICharacterSegments(character,request.model).hasCharacters)throw Error('多角色请求的角色段无效');
     }
+    if(request.naiCharacterNegatives!==undefined&&(!Array.isArray(request.naiCharacterNegatives)||request.naiCharacterNegatives.length!==characters.length||request.naiCharacterNegatives.some(v=>typeof v!=='string')))throw Error('角色负面数组与正面不匹配');
+    for(const segment of [request.prompt,...characters])if(/^[UC]\d+(?:,|$)/.test(segment.trim()))throw Error('请求中存在未解析的绑定 ID');
     return request;
 }

@@ -1,3 +1,7 @@
+import * as hostPersonas from '../../../personas.js';
+import {createCharacterBindingStorage} from './src/platform/character-bindings-storage.js';
+import {createCharacterBindingsSession,SNAPSHOTS_KEY,snapshotSlot} from './src/profiles/character-bindings-session.js';
+import {bindingReferences} from './src/prompts/character-binding-prompt.js';
 import {defaultPromptSettings,fixedMacroSnapshot,updateFixedMacros,migratePromptSettings} from './src/prompts/prompt-settings.js';
 import {migrateTreeSettings} from './src/prompts/tree-settings.js';
 import {createPromptInjection,bindPromptInjection} from './src/platform/prompt-injection.js';
@@ -94,10 +98,17 @@ settings.pattern = delimiterPattern(settings.startTag,settings.endTag);
 const running=new Map();
 const attempted=new Set();
 const cardBindings=new WeakMap();
+let bindingCapture=null;
 let chatObserver,chatRootObserver,observedChat,imageSaves=0;
 let queue=Promise.resolve(), streamActive=false, timer, autoScheduled=false, generationChat=null, settingsHost=null,imageToolsEpoch=0;
 let settingsPopup=null,pendingSettingsConfirm=null,autoSession=null,floatingDispose=()=>{},lastGestureReroll=0;
-const promptInjection=createPromptInjection({context:ctx,settings,onError:()=>notices.error('D0 提示词注入失败，请检查宿主兼容性','提示词')});
+const characterBindingStorage=createCharacterBindingStorage({getHeaders:()=>ctx().getRequestHeaders()});
+const characterBindings=createCharacterBindingsSession({context:ctx,persona:()=>hostPersonas.user_avatar,storage:characterBindingStorage,mode:()=>settings.promptConfig,models:()=>{
+    const selected=settings.profileSelectionMode==='random'?settings.profiles.filter(p=>settings.randomProfileIds?.includes(p.id)):[settings.profiles[settings.active]];
+    if(settings.eggProfileEnabled)selected.push(settings.profiles.find(p=>p.id===settings.eggProfileId));
+    return selected.filter(Boolean).map(p=>p.model);
+}});
+const promptInjection=createPromptInjection({context:ctx,settings,bindings:characterBindings,onError:error=>notices.error(redactErrorText(error?.message||'D0 提示词注入失败，请检查宿主兼容性'),'提示词',{escapeHtml:true})});
 const refreshPrompt=()=>{try{promptInjection.update();}catch{}};
 const save=()=>{if(settings.promptConfig)refreshPrompt();return ctx().saveSettingsDebounced();};
 if(generationOptionsMigrated||connectionMigrated||generationModeMigrated)save();
@@ -257,7 +268,7 @@ function generate(message,block,{automatic=false,egg}={}) {
         if(!current)throw Error('原 tag 已删除或修改，请重新生成');
         return startGeneration(live,current,{automatic,egg:egg===true});
     };
-    if(egg!==undefined||!settings.eggProfileEnabled){try{return start();}catch(error){generationError(error);return;}}
+    if(egg!==undefined||!settings.eggProfileEnabled){try{return Promise.resolve(start()).catch(generationError);}catch(error){generationError(error);return;}}
     return eggMarkerCache.read().then(marker=>{
         const parsed=parseGenerationBody(message.mes,settings.pattern,reasoningFormat(),marker);
         egg=parsed.blocks.at(-1)?.start===block.start;return start();
@@ -271,8 +282,12 @@ function tagEditor(message,block){
         if(taskFor(live,block))throw Error('这个 tag 正在生图，请完成后再编辑');
         if(streamActive&&generationChat===chat&&live===latestImageMessage(ctx().chat))throw Error('请等待本次回复输出完成后再编辑');
         const next=editedTag(live.mes,block,prompt,settings.pattern,{...reasoningFormat(),model:settings.profiles[settings.active].model});
-        buildRequest(settings.profiles[settings.active],next.block.prompt);
+        if(bindingReferences(next.block.prompt).length){
+            await characterBindings.accept(live,next.block,{reassociate:true,sourceBlock:block});
+            buildRequest(settings.profiles[settings.active],next.block.prompt,await characterBindings.resolve(live,next.block));
+        }else buildRequest(settings.profiles[settings.active],next.block.prompt);
         const record=state(live,identity(live,block)),oldText=live.mes;
+        if(record&&bindingReferences(next.block.prompt).length)record.bindingReassociated=true;
         live.mes=next.text;if(live.swipes)live.swipes[swipe]=next.text;
         moveSwipeImage(live,swipe,blockSlot(block),blockSlot(next.block),record);
         try{await inStage('chat-save',()=>ctx().saveChat());}
@@ -284,14 +299,21 @@ function tagEditor(message,block){
         renderAll();generate(live,next.block);
     };
 }
-function startGeneration(message,block,{automatic=false,egg=false}={}) {
+async function startGeneration(message,block,{automatic=false,egg=false}={}) {
     message=liveMessage(message);if(!message)throw Error('原楼层已切换，请重新点击当前图片');
     const key=identity(message,block), chat=currentChat(), taskId=`${chat}:${ctx().chat.indexOf(message)}:${key}`;
     const existing=running.get(taskId)||taskFor(message,block);if(existing)return existing.promise;
     message.miao_nai_image_id??=randomId();
     const {profile,profileId,profileName,source:profileSource}=selectGenerationProfile(settings,{egg});
-    const request=buildRequest(profile,block.prompt);
-    request.vibes=selectVibes(profile,settings.vibeLibrary);
+    const bound=bindingReferences(block.prompt).length>0;
+    if(bound)captureBindingTags();
+    if(bound)await characterBindings.settled(message,block);
+    const previous=state(message,key);
+    const historical=bound&&previous?.request&&previous.tagPrompt===block.prompt&&!previous.bindingReassociated;
+    const request=historical?structuredClone(previous.request):buildRequest(profile,block.prompt,bound?await characterBindings.resolve(message,block):undefined);
+    if(chat!==currentChat()||!blocks(message).some(b=>b.raw===block.raw&&b.start===block.start))throw Error('聊天或 Tag 已切换，请重新生成');
+    if(running.has(taskId))return running.get(taskId).promise;
+    if(!historical)request.vibes=selectVibes(profile,settings.vibeLibrary);
     const storage={root:validateFolder(settings.folder),context:archiveContext(ctx())};
     attempted.add(taskId);
     const task={profileId,profileName,profileSource,profile,request,blockStart:block.start,blockRaw:block.raw,status:'排队中',...generationOptions(settings),message,key,chat,messageIndex:ctx().chat.indexOf(message),name:message.name,is_user:!!message.is_user,is_system:!!message.is_system,swipe:message.swipe_id??0,prompt:promptIdentity(block.prompt),occurrence:blocks(message).filter(b=>promptIdentity(b.prompt)===promptIdentity(block.prompt)).findIndex(b=>b.start===block.start),previousRecord:state(message,key),toolsEpoch:imageToolsEpoch};
@@ -414,6 +436,13 @@ function makeCard(message,block) {
             return showPrompt(block.prompt,enabled?(profile.vibes||[]).map(v=>({...v,name:settings.vibeLibrary?.find(item=>item.id===v.id)?.name||v.name||v.id})):[],profile.name,true,enabled,tagEditor(message,block),policy);
         });
     }
+    if(bindingReferences(block.prompt).length)button('重新关联绑定',async()=>{
+            if(!await confirmSettings('此操作使用当前角色档案为本次 Tag 创建新快照；已有图片版本保留原请求。','重新关联绑定',{confirmLabel:'使用当前绑定重新关联'}))return;
+            await characterBindings.accept(message,block,{reassociate:true});
+            // Keep existing image versions, but future generations use this newly confirmed Tag snapshot.
+            const record=state(message,identity(message,block));if(record){record.bindingReassociated=true;writeSwipeImage(message,message.swipe_id??0,blockSlot(block),record);await ctx().saveChat();}
+            notices.success('已重新关联当前绑定','角色绑定');
+    },actions);
     if(task){const progress=el('span',task.status,'miao-image-progress');progress.setAttribute('role','status');card.append(progress);}
     card.dataset.status=String(selected)+':'+versions.map(v=>v.url+':'+!!v.deleted).join('|')+':'+(task?.status||'')+':'+(settings.rerollClicks===3?3:2)+':favorites='+favoritesEnabled(settings);
     card.append(actions);
@@ -496,7 +525,18 @@ function replaceLiteral(root,literal,node,message,block) {
     }
     return true;
 }
+function captureBindingTags(){
+    const capture=bindingCapture;if(!capture||capture.chat!==currentChat())return;
+    for(const message of [latestImageMessage(ctx().chat)].filter(Boolean))for(const block of blocks(message)){
+        if(!bindingReferences(block.prompt).length)continue;
+        const slot=snapshotSlot(message.swipe_id??0,block),tail=capture.tail,existing=capture.existing.get(message)||(tail?.text&&message.mes.startsWith(tail.text)&&message.name===tail.name&&(message.swipe_id??0)===tail.swipe?tail.slots:undefined);
+        if(existing?.has(slot)||message[SNAPSHOTS_KEY]?.[slot])continue;
+        const attempted=capture.attempted.get(message)||new Set();capture.attempted.set(message,attempted);if(attempted.has(slot))continue;attempted.add(slot);
+        void characterBindings.accept(message,block,{frozenBindings:capture.bindings}).catch(generationError);
+    }
+}
 function renderAll() {
+    captureBindingTags();
     chatObserver?.disconnect();
     try{
     document.querySelectorAll('#chat .mes').forEach(mes=>{
@@ -829,6 +869,7 @@ async function generateFavorite(item,profileId){
     if('negative' in favorite||'positiveSuffix' in favorite)throw Error('请先编辑这条收藏，确认只保留模型场景词后保存');
     if(favorite.images.length>=FAVORITE_IMAGE_LIMIT)throw Error(`每条收藏最多 ${FAVORITE_IMAGE_LIMIT} 张例图，请先移除不需要的例图`);
     const profile=settings.profiles.find(profile=>profile.id===profileId);if(!profile)throw Error('配置已删除，请重新选择');
+    if(bindingReferences(favorite.positive).length)throw Error('收藏生图不支持绑定 ID，请在聊天内使用绑定快照，或将收藏改为完整人物 Tag');
     const request=buildRequest(structuredClone(profile),favorite.positive);request.vibes=selectVibes(profile,settings.vibeLibrary);
     const scope={folder:validateFolder(settings.folder),...generationOptions(settings)},id=favorite.id,scene=favorite.positive;
     const valid=()=>{if(!favoritesEnabled(settings))throw Error('收藏功能已关闭，取消等待中的收藏生图');const current=favorites.list().find(item=>item.id===id);if(!current||current.positive!==scene)throw Error('收藏已删除或场景词已修改，取消本次生图');if(current.images.length>=FAVORITE_IMAGE_LIMIT)throw Error('收藏例图已满，请先移除部分例图');return true;};
@@ -901,9 +942,9 @@ async function deleteImages(folder,names,{parent}={}) {
 }
 async function openSettings(initialTab,initialFavorite,initialPage) {
     if(initialTab==='favorites'&&!favoritesEnabled(settings))throw Error('请先在「生成」页开启收藏提示词');
-    if(!['resources','favorites'].includes(initialTab))initialTab=undefined;
+    if(!['resources','bindings','favorites'].includes(initialTab))initialTab=undefined;
     if(settingsPopup?.dlg?.isConnected||settingsHost?.isConnected){if(initialTab)settingsHost.dispatchEvent(new CustomEvent('miao-open-section',{detail:{section:initialTab,favorite:initialFavorite}}));return;}
-    const panel=createSettingsPanel({settings,save,persistSettings,initialTab,initialFavorite,favorites,saveFavorite,generateFavorite,sceneFromImage,
+    const panel=createSettingsPanel({characterBindings,settings,save,persistSettings,initialTab,initialFavorite,favorites,saveFavorite,generateFavorite,sceneFromImage,
         confirmCustomVibeOrigin:({generationOrigin,encodeOrigin})=>confirmSettings(`在线编码将使用同一个 API Key。生图站点：${generationOrigin}\n编码站点：${encodeOrigin}\n只有在你信任该编码站点时才继续保存。`,'确认跨站点 Vibe 编码',{confirmLabel:'确认并保存'}),
         removeFavorite:async id=>{if(!await confirmSettings('删除这条收藏？图片文件会保留。','删除收藏'))return false;await favorites.remove(id);return true;},
         collectImage:url=>openSettings('favorites',draftFromImage(url)),buildThumbnails,
@@ -1005,8 +1046,16 @@ async function init() {
             if(next!==settings.promptConfig)await savePromptConfig(next);
         }catch{notices.warning('提示词结构迁移或保存失败，已保留原配置，可重试保存。','提示词');}
     }
+    if(settings.promptConfig?.tagMode==='binding')await characterBindings.load().catch(()=>{});
     refreshPrompt();
+    for(const event of ['CHAT_CHANGED','CHAT_LOADED','PERSONA_CHANGED'])if(c.eventTypes[event])c.eventSource.on(c.eventTypes[event],async()=>{
+        bindingCapture=null;characterBindings.invalidate();
+        settingsHost?.querySelector('.miao-character-bindings')?.dispatchEvent(new Event('miao-bindings-changed'));
+        refreshPrompt();
+        if(settings.promptConfig?.tagMode==='binding')await characterBindings.load().catch(()=>{});refreshPrompt();
+    });
     bindPromptInjection({source:c.eventSource,eventTypes:c.eventTypes,injection:promptInjection});
+    c.eventSource.on(c.eventTypes.GENERATION_AFTER_COMMANDS,()=>{if(bindingCapture){try{bindingCapture.bindings=structuredClone(characterBindings.rows());}catch{bindingCapture.bindings=[];}}});
 
     let migrated=false;for(const message of c.chat)migrated=migrateSwipeImages(message)||migrated;if(migrated)await c.saveChat();
     document.addEventListener('click',event=>{
@@ -1024,6 +1073,7 @@ async function init() {
     if(c.eventTypes.MESSAGE_SWIPE_DELETED)c.eventSource.on(c.eventTypes.MESSAGE_SWIPE_DELETED,async({messageId,swipeId})=>{
         const message=ctx().chat[messageId];if(!message)return;
         for(const task of running.values())if(liveMessage(task.message,task)===message&&task.swipe>=swipeId)task.cancelled=true;
+        if(message[SNAPSHOTS_KEY]){const shifted={};for(const [key,ref] of Object.entries(message[SNAPSHOTS_KEY])){const parts=JSON.parse(key);if(parts[0]===swipeId)continue;if(parts[0]>swipeId)parts[0]--;shifted[JSON.stringify(parts)]=ref;}message[SNAPSHOTS_KEY]=shifted;}
         removeSwipeImages(message,swipeId);await ctx().saveChat();scheduleRender(false);
     });
     c.eventSource.on(c.eventTypes.CHAT_CHANGED,()=>{streamActive=false;generationChat=null;autoSession=null;scheduleRender(false);setTimeout(()=>guard(indexChatImages)(),0);});
@@ -1033,10 +1083,12 @@ async function init() {
         // never emit GENERATION_ENDED. They must not hide the last floor's cards.
         if(dryRun||type==='quiet'||type==='impersonate')return;
         streamActive=false;generationChat=currentChat();
+        const tail=latestImageMessage(ctx().chat);
+        bindingCapture={chat:currentChat(),tail:tail?{text:tail.mes,name:tail.name,swipe:tail.swipe_id??0,slots:new Set(blocks(tail).map(b=>snapshotSlot(tail.swipe_id??0,b)))}:null,existing:new WeakMap(ctx().chat.map(m=>[m,new Set(blocks(m).map(b=>snapshotSlot(m.swipe_id??0,b)))])),attempted:new WeakMap()};
         autoSession={chat:currentChat(),enabled:settings.enabled&&settings.mode!=='manual',marker:settings.eggProfileEnabled?eggMarkerCache.read():Promise.resolve(''),existing:new Set(ctx().chat.flatMap((m,i)=>blocks(m).map(b=>`${i}:${identity(m,b)}`)))};
     });
-    c.eventSource.on(c.eventTypes.GENERATION_ENDED,()=>{const same=generationChat===currentChat();streamActive=false;generationChat=null;renderAll();if(same)autoLatest();});
-    if(c.eventTypes.GENERATION_STOPPED)c.eventSource.on(c.eventTypes.GENERATION_STOPPED,()=>{const same=generationChat===currentChat();streamActive=false;generationChat=null;scheduleRender(false);if(same&&settings.eggProfileEnabled)void autoLatest();});
+    c.eventSource.on(c.eventTypes.GENERATION_ENDED,()=>{const same=generationChat===currentChat();streamActive=false;generationChat=null;renderAll();bindingCapture=null;if(same)autoLatest();});
+    if(c.eventTypes.GENERATION_STOPPED)c.eventSource.on(c.eventTypes.GENERATION_STOPPED,()=>{const same=generationChat===currentChat();streamActive=false;generationChat=null;captureBindingTags();bindingCapture=null;scheduleRender(false);if(same&&settings.eggProfileEnabled)void autoLatest();});
     c.eventSource.on(c.eventTypes.STREAM_TOKEN_RECEIVED,()=>{if(generationChat===currentChat())streamActive=true;setTimeout(()=>guard(()=>{scanStream();renderAll();})(),0);});
     for(const event of ['SECRET_WRITTEN','SECRET_DELETED','SECRET_ROTATED'])if(c.eventTypes[event])c.eventSource.on(c.eventTypes[event],key=>{if(key===SECRET_KEYS.NOVEL){settings.keyHash='';save();settingsHost?.dispatchEvent(new Event('miao-key-changed'));}});
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applyTheme);

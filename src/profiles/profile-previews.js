@@ -1,3 +1,4 @@
+import {bindingReferences} from '../prompts/character-binding-prompt.js';
 import {buildRequest} from '../core/core.js';
 import {randomId} from '../platform/browser-crypto.js';
 import {selectVibes} from '../vibe/vibe.js';
@@ -33,6 +34,7 @@ export function planProfileRemoval(settings,ids){
 }
 export function sampleRequest(profile,library=[],prompt=SAMPLE_PROMPT){
     if(typeof prompt!=='string'||!prompt.trim())throw Error('请填写例图提示词');
+    if(bindingReferences(prompt).length)throw Error('配置例图不支持绑定 ID，请改为完整人物 Tag');
     const request=buildRequest({...profile,width:512,height:512,seed:246813579},prompt);
     request.vibes=selectVibes(profile,library,()=>0);return request;
 }

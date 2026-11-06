@@ -1170,7 +1170,7 @@
 
 #miao-nai-settings>.miao-tabs {
     display: grid !important;
-    grid-template-columns: repeat(5,minmax(0,1fr)) !important;
+    grid-template-columns: repeat(6,minmax(0,1fr)) !important;
     grid-template-rows: 44px !important;
     grid-auto-flow: row !important;
     gap: 0 !important;
@@ -1313,7 +1313,7 @@
     grid-template-columns: repeat(4,minmax(0,1fr));
 }
 .miao-image-operations[data-has-delete=true][data-favorites=true] {grid-template-columns:repeat(3,minmax(0,1fr));}
-#miao-nai-settings[data-favorites-enabled=true]>.miao-tabs {grid-template-columns:repeat(6,minmax(0,1fr))!important;}
+#miao-nai-settings[data-favorites-enabled=true]>.miao-tabs {grid-template-columns:repeat(7,minmax(0,1fr))!important;}
 
 .miao-image-viewer {
     display: flex;
@@ -2333,3 +2333,12 @@ img[data-miao-export-state=loading] {visibility: hidden;}
 .miao-keyword-chip .miao-button:last-child{flex:0 0 36px}
 .miao-keyword-editor{display:flex;gap:6px;flex-wrap:wrap;min-width:0}
 .miao-keyword-editor input{flex:1 1 120px;min-width:0;max-width:100%;font-size:16px}
+
+/* Character archives: text stays inside the independent editor on small screens. */
+.miao-character-bindings { min-width: 0; }
+.miao-binding-row { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; padding: .75rem 0; border-bottom: 1px solid var(--SmartThemeBorderColor); }
+.miao-binding-editor { display: grid; gap: .6rem; padding: .8rem 0; min-width: 0; }
+.miao-binding-editor textarea { width: 100%; min-height: 7rem; resize: vertical; white-space: pre-wrap; overflow-wrap: anywhere; }
+.miao-binding-roster { white-space: pre-wrap; overflow-wrap: anywhere; }
+.miao-character-bindings .miao-field, .miao-character-bindings input { min-width: 0; max-width: 100%; }
+@media (max-width: 680px) { .miao-character-bindings .miao-actions { flex-direction: column; align-items: stretch; } }

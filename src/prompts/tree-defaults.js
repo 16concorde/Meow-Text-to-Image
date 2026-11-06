@@ -100,10 +100,21 @@ const definitions = [
         "kind": "group",
         "toggleable": true,
         "defaultEnabled": true,
+        "slots": {},
+        "children": ["tags.full", "tags.binding"]
+    },
+    {
+        "nodeId": "tags.full", "displayId": "02.01", "label": "完整 Tag（主 API 输出）",
+        "parentId": "tags", "order": 0, "kind": "text", "toggleable": false, "defaultEnabled": true,
         "slots": {
             "body": "注1:\n角色信息: (-sfw/nsfw-upperBody-sfw/nsfw-LowerBody)是否追加状态脏污、汗水、伤痕(轻微情趣向)等等。\n衣物信息: (原创服装:服装特色tag 并是否追加状态湿身、破损、脏污)只包含了服装的基本状态(比如是湿的，那么可以自行添加，关键词tag “Wet clothes”)\n只使用可见的服装部位，例如是赤裸则不进行调用。\n\n注2:\ntag结构：\n1.基础结构\n- 类型(选一:nsfw/sfw)\n- 画面总人数(必须明确：1girl/1boy/etc),\n- 质感提升词(controlled impasto/ soft thick paint / low saturation)\n- 构图(from front / close-up / full body / pov 等),\n- 背景(场景 + 时间 + 光照)\n- 添加增强稳定性tag:masterpiece, best quality,\n\n2.角色模板\n- NovelAI V4/V4.5/V5 多人图在一个完整图片 tag 内输出：\nbase prompt | 角色1 prompt | 角色2 prompt [| 更多角色 prompt]\n- base prompt 写总人数、全局构图、场景、时间、光照、画风与共同氛围\n- 每个角色 prompt 写无数字的 boy / girl / other（或标准同人角色名），再写仅属于此人的外貌、服装、表情、动作；按剧情决定特征，顺序对应原剧情\n- 著名角色的 1.5::English Name::、1.5::English Source:: 放在相应角色段；默认特征仍按同人规则处理\n- 不使用 SD 式 (Name:1.2, ...) 包裹整个人物串，不引入 GirlA / BoyA 等占位人物名\n- NAI 权重使用 1.2::text::、{text}、[text]，不要求整个人物段加权\n- 单人图仍使用普通单段 tag，不必添加管道符\n多角色交互时，在对应角色段成对使用 source#动作 / target#动作；双方互相执行同一动作时可各用 mutual#动作\n结构示例（人物特征按剧情填写）：\n2boys, night, city street, two-shot | boy, source#holding hands | boy, target#holding hands\n\n3.动作与交互\n- 普通全局场景与互动气氛放 base\n- 有明确归属的 hugging、holding hands、looking at each other 等动作放各自角色段，使用 source# / target# / mutual# 表明关系\n前三点结合才是一个完整tag。\n\n4.禁止项\n- 禁止使用抽象词：beautiful,cute,amazing\n- 禁止模糊词：nice pose,good lighting,glowing,dominant\n- 禁止跨段共享发色、瞳色、服装、表情与动作归属，禁止把各人的外貌混入 base\n- 禁止过分细致描写tag"
         },
         "children": []
+    },
+    {
+        "nodeId": "tags.binding", "displayId": "02.02", "label": "角色绑定 Tag 规则",
+        "parentId": "tags", "order": 1, "kind": "text", "toggleable": false, "defaultEnabled": false,
+        "slots": {"body": "## NovelAI Tag 生成：固定角色绑定模式\n- 对已绑定人物，本条的首标签 ID、单人管道符及不重复固定外貌规则优先于其它条目中的完整外貌、同人名字或单人单段要求；未绑定人物仍遵守通用规则。\n- 当前绑定对照表是插件提供的唯一合法 ID 列表；只选择实际入画的人物，未入画者不得输出。\n- 一张图只输出一个 image###...### 块：base | 角色1 | 角色2 [| 更多角色]。单个已绑定角色也必须用 base | 角色。\n- base 只写画面人数、构图、环境、时间、光照、画风、整体氛围，不写个人外貌。\n- 已绑定角色：专属角色段第一个逗号分隔标签写 C01 或 U02 等指定 ID，后接当下服装、表情、姿势、动作、临时伤痕及可见物件；不重复固定发色、发型、瞳色、长期体型等。\n- 未绑定人物：不写占位符，角色段完整写 boy/girl/other 或标准同人角色名、外貌、服装、动作和表情；单个未绑定人物可沿用普通单段 Tag。\n- 每段只能引用一个 ID；同一人物只出现一次。禁止捏造 ID、用姓名或别名代替 ID，禁止输出内部 UUID。\n- 交互动作沿用 source# / target# / mutual#；权重用 1.2::tag::、{tag}、[tag]，不使用 SD 的 (Name:1.2, ...) 人物括号。\n- 不知道对应 ID 时不得猜测，应作为未绑定人物写完整 Tag。\n- 人物特征、服装、动作归各自角色段，不跨段共享；保留 ||day|night|| 随机化语法。\n"}, "children": []
     },
     {
         "nodeId": "nsfw",

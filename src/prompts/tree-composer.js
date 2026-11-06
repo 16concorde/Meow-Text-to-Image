@@ -17,6 +17,7 @@ export function composeTreePrompt(config, activation = {}) {
                 text = text.replace(/（对象）|（人格）|（数量）张/g, token => ({'（对象）':p.target, '（人格）':p.persona, '（数量）张':count})[token]);
             }
             parts.push(text);
+            if(id==='tags.binding'&&slot==='body')parts.push('【可用绑定 ID 对照表】\n'+(activation.bindingRoster||'（当前无可用绑定；所有人物须写完整 Tag，不得输出 ID）'));
         }
         if (id === 'output') {
             // Output instructions form one continuous format block, in exact row order.
