@@ -21,7 +21,7 @@ export async function readBindingChatObjects(response,{find=()=>true,maxObjectBy
 }
 const fileName=value=>{if(typeof value!=='string'||!value||value.length>1024||/[\x00-\x1f/\\]/.test(value))throw Error('聊天文件定位无效');return value;};
 export function createBindingChatSettings({host,management}){
-    const knownChats=new Map(),drafts=new Map(),pendingWrites=new Map();let queue=Promise.resolve();
+    const knownChats=new Map(),drafts=new Map(),pendingWrites=new Map(),inflightWrites=new Map();let queue=Promise.resolve();
     const current=()=>{const c=host.context(),card=c.characters?.[c.characterId],chat=c.getCurrentChatId?.()??c.chatId;return !c.groupId&&card?.avatar&&chat?{target:{type:'card',locator:card.avatar,name:card.name},cardOwnerId:card.data?.extensions?.meow_t2i?.ownerId,fileName:String(chat)}:null;};
     const key=ref=>JSON.stringify([host.scope(),ref.cardOwnerId??ref.target.locator,ref.fileName]);
     const isCurrent=ref=>{const c=current();return c&&key(c)===key(ref);};
@@ -32,9 +32,17 @@ export function createBindingChatSettings({host,management}){
         const h=handle(ref);if(!isCurrent(ref)&&h?.metadata?.get)return h.metadata.get();
         const header=await fetchObjects(ref,{find:()=>true,maxObjectBytes:256*1024});if(!header?.chat_metadata||typeof header.chat_metadata!=='object')throw Error('聊天 header 缺失，请先在酒馆打开并保存此聊天');return header.chat_metadata;
     }
-    const api={current,isCurrent,key,drafts,
+    const writable=ref=>!!isCurrent(ref)||typeof handle(ref)?.metadata?.setExtension==='function';
+    const api={current,isCurrent,key,drafts,writable,
+        async openChat(ref){
+            const captured=host.scope();if(host.busy())throw Error('酒馆正在生成或保存，请稍后打开聊天');ref=await resolveRef(ref);
+            const c=host.context(),index=c.characters?.findIndex(x=>x.avatar===ref.target.locator);
+            if(index<0||typeof c.selectCharacterById!=='function'||typeof c.openCharacterChat!=='function')throw Error('当前宿主不能打开此聊天，请在酒馆手动打开');
+            await c.selectCharacterById(index,{switchMenu:false});if(host.scope()!==captured||host.context().characters?.[host.context().characterId]?.avatar!==ref.target.locator)throw Error('打开角色卡后定位已变化');
+            await host.context().openCharacterChat(ref.fileName);if(host.scope()!==captured||!isCurrent(ref))throw Error('未能确认目标聊天');
+        },
         async handleEvent(change){if(change.name!=='CHAT_RENAMED'||!change.locator||!change.oldChatFile||!change.chatFile)return;const record=(await management.records()).find(r=>r.type==='card'&&r.locator===change.locator&&r.state==='ready'),oldRef={target:{type:'card',locator:change.locator},cardOwnerId:record?.ownerId,fileName:change.oldChatFile},nextRef={...oldRef,fileName:change.chatFile};for(const [uuid,value] of knownChats)if(value===key(oldRef))knownChats.set(uuid,key(nextRef));if(drafts.has(key(oldRef))){drafts.set(key(nextRef),drafts.get(key(oldRef)));drafts.delete(key(oldRef));}},
-        assertCurrentConfirmed(){const ref=current();if(ref&&pendingWrites.has(key(ref)))throw Error('聊天开关保存结果仍未知，请在聊天管理中重新读取查证后再生成');},
+        assertCurrentConfirmed(){const ref=current();if(ref&&(pendingWrites.has(key(ref))||inflightWrites.has(key(ref))))throw Error('聊天开关保存结果仍未知，请在聊天管理中重新读取查证后再生成');},
         async list(target){const result=await (await host.post('characters/chats',{avatar_url:target.locator,simple:true})).json();if(!Array.isArray(result)){if(result?.error===true)throw Error('聊天列表读取失败，请重试');throw Error('聊天列表格式无效');}return result.map(item=>({target,fileName:fileName(item.file_id??String(item.file_name).replace(/\.jsonl$/,'')),name:item.file_id??String(item.file_name).replace(/\.jsonl$/,''),last: item.last_mes??'',messages:item.chat_items??null}));},
         async read(ref,{previewPersona}={}){
             ref=await resolveRef(ref);const captured=host.scope(),meta=await metadata(ref);if(host.scope()!==captured)throw Error('账户已改变');
@@ -45,31 +53,34 @@ export function createBindingChatSettings({host,management}){
             return {ref,metadata:meta,entries,settings,persona:user||null,collision,baseHash:await sha256(JSON.stringify(meta.extensions?.[BINDING_NAMESPACE]??null)),integrity:meta.integrity??null,scope:captured};
         },
         rows(state){const meta={extensions:{[BINDING_NAMESPACE]:state.settings}};return activeBindings(state.entries.map(e=>e.archive),meta);},
-        save(state,values){const captured=host.scope(),job=queue.then(async()=>{
+        save(state,values,{allowOpen=true}={}){const captured=host.scope(),targetKey=key(state.ref),job=queue.then(async()=>{
             if(captured!==state.scope||host.scope()!==captured)throw Error('账户已切换，草稿未保存');
             if(host.busy())throw Error('酒馆正在生成或保存，请结束当前操作后再保存；草稿已保留');
             const ref=await resolveRef(state.ref);let live=isCurrent(ref),h=handle(ref);
             if(!live&&!h?.metadata?.setExtension){
+                if(!allowOpen)throw Error('打开此聊天后可修改开关');
                 const c=host.context(),index=c.characters?.findIndex(x=>x.avatar===ref.target.locator);
                 if(index<0||typeof c.selectCharacterById!=='function'||typeof c.openCharacterChat!=='function')throw Error('当前宿主不能定向保存，请在酒馆打开此聊天后载入当前聊天');
                 await c.selectCharacterById(index,{switchMenu:false});if(host.context().characters?.[host.context().characterId]?.avatar!==ref.target.locator)throw Error('未能打开目标角色卡，请保留草稿重试');
                 await host.context().openCharacterChat(ref.fileName);if(!isCurrent(ref))throw Error('打开聊天后的定位不一致，未写入开关');live=true;
             }
-            const latest=await metadata(ref);if((latest.integrity??null)!==state.integrity||await sha256(JSON.stringify(latest.extensions?.[BINDING_NAMESPACE]??null))!==state.baseHash)throw Error('聊天元数据已改变，请保留草稿并重新读取比较');
+            const latest=await metadata(ref);if((latest.integrity??null)!==state.integrity||await sha256(JSON.stringify(latest.extensions?.[BINDING_NAMESPACE]??null))!==state.baseHash)throw Object.assign(Error('聊天元数据已改变，请保留草稿并重新读取比较'),{saveState:'conflict'});
             const next=structuredClone(state.settings);if(state.collision)next.chatUuid=randomId();
             for(const entry of state.entries){if(!entry.archive.owner.ownerId&&entry.archive.bindings.length)throw Error('所属身份尚未迁移，不能保存覆盖');}
             for(const row of api.rows(state)){const k=bindingSwitchKey(row.owner,row),v=values[k];if(v==='inherit')delete next.values[k];else if(typeof v==='boolean')next.values[k]=v;}
+            if(host.scope()!==captured)throw Error('账户已改变，未写入开关');
             pendingWrites.set(key(ref),next);
             if(live){
+                if(!isCurrent(ref)||host.scope()!==captured)throw Error('当前聊天已改变，未写入开关');
                 const c=host.context();c.chatMetadata.extensions??={};c.chatMetadata.extensions[BINDING_NAMESPACE]=next;
-                await c.saveMetadataDebounced?.();try{await c.saveMetadata();}catch{/* Read-back decides whether the write actually completed. */}
+                if(allowOpen)await c.saveMetadataDebounced?.();if(!isCurrent(ref)||host.scope()!==captured)throw Object.assign(Error('当前聊天已改变，原保存结果待查证'),{saveState:'unknown'});try{await c.saveMetadata();}catch{/* Read-back decides whether the write actually completed. */}
             }else {try{await h.metadata.setExtension({namespace:BINDING_NAMESPACE,value:next});}catch{/* An interrupted bridge may already have committed. */}}
             if(host.scope()!==captured)throw Object.assign(Error('账户已改变，原写入结果待查证'),{saveState:'unknown'});
             let confirmed;try{confirmed=await metadata(ref);}catch{throw Object.assign(Error('聊天开关保存结果未知，请保留草稿并查证'),{saveState:'unknown'});}
             if(JSON.stringify(confirmed.extensions?.[BINDING_NAMESPACE])!==JSON.stringify(next)){if(isCurrent(ref)){const liveMeta=host.context().chatMetadata;if(confirmed.extensions?.[BINDING_NAMESPACE])liveMeta.extensions[BINDING_NAMESPACE]=structuredClone(confirmed.extensions[BINDING_NAMESPACE]);else delete liveMeta.extensions[BINDING_NAMESPACE];}pendingWrites.delete(key(ref));throw Error('聊天开关尚未保存：读回内容不一致，草稿已保留');}
             pendingWrites.delete(key(ref));
             drafts.delete(key(ref));knownChats.set(next.chatUuid,key(ref));return {...state,metadata:confirmed,settings:next,baseHash:await sha256(JSON.stringify(next)),collision:false};
-        });queue=job.catch(()=>{});return job;},
+        });inflightWrites.set(targetKey,job);job.finally(()=>{if(inflightWrites.get(targetKey)===job)inflightWrites.delete(targetKey);}).catch(()=>{});queue=job.catch(()=>{});return job;},
         async confirmMessage(message,slot,value){
             const ref=current();if(!ref)throw Error('没有可确认保存的当前聊天');const id=message.miao_nai_image_id;
             const h=handle(ref);let found;

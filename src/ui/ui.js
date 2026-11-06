@@ -55,7 +55,7 @@ export function createSettingsPanel({characterBindings,settings,save,persistSett
     }
     function action(parent,label,fn,primary=false) {
         const b=node('button',label,`miao-button${primary?' miao-primary':''}`);b.type='button';
-        const invoke=safe(async()=>{if(b.disabled)return;b.disabled=true;try{await fn();}finally{b.disabled=false;}});if(/^(删除|清理)/.test(label))bindButtonPress(b,invoke);else b.onclick=invoke;parent.append(b);return b;
+        const invoke=safe(async()=>{if(b.disabled)return;b.disabled=true;try{await fn();}finally{b.disabled=b.classList.contains('miao-save-button')&&activeTab==='bindings'?(!bindingPage?.canSave()||bindingPage?.hasPending()):false;}});if(/^(删除|清理)/.test(label))bindButtonPress(b,invoke);else b.onclick=invoke;parent.append(b);return b;
     }
     function field(parent,label,value,change,{type='text',options,wide=false}={}) {
         const wrap=node('label',undefined,`miao-field${wide?' miao-wide':''}`);wrap.append(node('span',label));
@@ -109,7 +109,7 @@ export function createSettingsPanel({characterBindings,settings,save,persistSett
             await persistSettings();
             for(const id of ids)exportSelection.delete(id);
             render();for(const warning of warnings)onError(Error(warning));
-        }catch(error){settings.profiles=previous;settings.active=active;Object.assign(settings,policy);save();throw error;}
+        }catch(error){if(['unconfirmed','superseded','cancelled'].includes(error.status)){render();throw error;}settings.profiles=previous;settings.active=active;Object.assign(settings,policy);save();throw error;}
         finally{body.inert=wasInert;for(const [button,disabled] of locked)button.disabled=disabled;root.removeAttribute('aria-busy');}
     }
     function render() {
@@ -126,8 +126,8 @@ export function createSettingsPanel({characterBindings,settings,save,persistSett
         const back=node('button','‹','miao-drawer-back');back.type='button';back.setAttribute('aria-label','返回功能列表');back.hidden=activeTab==='overview';back.onclick=async()=>{if(bindingPage?.back())return;if(!await leaveBindings())return;activeTab='overview';render();root.closest('.popup-content')?.scrollTo({top:0});};header.append(back);
         if(activeTab==='overview'){const title=node('div');title.append(node('h2','喵喵文生图'));brand.append(title);header.append(brand);}
         header.dataset.compact=String(activeTab!=='overview');
-        if(activeTab!=='overview'&&activeTab!=='bindings'){
-            const saveButton=action(header,'保存',async()=>{saveButton.textContent='保存中…';try{await commitPage();await persistSettings();afterSave();const current=root.querySelector('.miao-save-button');if(current)current.textContent='已保存';}catch(error){const current=root.querySelector('.miao-save-button');if(current)current.textContent='保存';throw error;}});saveButton.classList.add('miao-save-button');
+        if(activeTab!=='overview'){
+            const saveButton=action(header,'保存',async()=>{saveButton.textContent='保存中…';try{if(activeTab==='bindings')await bindingPage.save();else{await commitPage();await persistSettings();afterSave();}const current=root.querySelector('.miao-save-button');if(current){current.textContent='已保存';if(activeTab==='bindings')setTimeout(()=>{if(current.isConnected&&current.textContent==='已保存')current.textContent='保存';},1500);}}catch(error){const current=root.querySelector('.miao-save-button');if(current)current.textContent='保存';throw error;}});saveButton.classList.add('miao-save-button');
         }
         const close=node('button','×','miao-drawer-close');close.type='button';close.setAttribute('aria-label','关闭设置');close.onclick=safe(async()=>{if(await leaveBindings()){bindingPage?.dispose();bindingPage=null;await closeSettings();}});header.append(close);root.append(header);
         const tabs=node('nav',undefined,'miao-tabs');tabs.setAttribute('aria-label','设置分区');
@@ -153,7 +153,7 @@ export function createSettingsPanel({characterBindings,settings,save,persistSett
                 row.onclick=()=>{activeTab=id;render();root.closest('.popup-content')?.scrollTo({top:0});};overview.append(row);
             }
         } else if(activeTab==='bindings') {
-            bindingPage=createCharacterBindingsView({session:characterBindings,settings,onError});body.append(bindingPage);
+            bindingPage=createCharacterBindingsView({session:characterBindings,settings,onError});body.append(bindingPage);const updateBindingSave=()=>{const button=header.querySelector('.miao-save-button');if(!button)return;button.disabled=!bindingPage.canSave()||bindingPage.hasPending();button.textContent=bindingPage.hasPending()?'保存中…':'保存';};bindingPage.addEventListener('miao-binding-save-state',updateBindingSave);updateBindingSave();
         } else if(activeTab==='generation') {
             const layout=node('div',undefined,'miao-generation-layout'),preferences=node('div',undefined,'miao-generation-column'),account=node('div',undefined,'miao-generation-column');layout.append(preferences,account);body.append(layout);
             const interaction=section(preferences,'操作');
@@ -300,7 +300,7 @@ export function createSettingsPanel({characterBindings,settings,save,persistSett
             promptUpload.onchange=safe(async()=>{const file=promptUpload.files?.[0];if(!file)return;importPrompts.disabled=true;try{
                 const imported=await readPromptFiles(file,settings.profiles,{restorePreview:restorePromptPreview}),previous=settings.profiles[settings.active];ensureProfileIds(imported);
                 const first=settings.profiles.length;settings.profiles.push(...imported);settings.active=first;
-                try{await persistSettings();}catch(error){settings.profiles=settings.profiles.filter(profile=>!imported.includes(profile));settings.active=Math.max(0,settings.profiles.indexOf(previous));save();throw error;}
+                try{await persistSettings();}catch(error){if(['unconfirmed','superseded','cancelled'].includes(error.status)){render();throw error;}settings.profiles=settings.profiles.filter(profile=>!imported.includes(profile));settings.active=Math.max(0,settings.profiles.indexOf(previous));save();throw error;}
                 render();
             }finally{promptUpload.value='';importPrompts.disabled=false;}});
             const promptTabs=node('div',undefined,'miao-prompt-tabs');promptTabs.setAttribute('role','tablist');promptTabs.setAttribute('aria-label','提示词类型');prompts.append(promptTabs);

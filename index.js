@@ -41,7 +41,8 @@ import * as extensionAPI from '../../../extensions.js';
 import { saveBase64AsFile } from '../../../utils.js';
 import * as hostUtils from '../../../utils.js';
 import {bindImageGesture,createFloatingEntry,bindImageZoom} from './src/ui/interactions.js';
-import {persistHostSettings} from './src/platform/settings-save.js';
+import {createSettingsSaveCoordinator,verifyPersistedSettings,SaveCancelledError} from './src/platform/settings-save.js';
+import {waitForHostSettingsReady} from './src/platform/settings-ready.js';
 import {createPromptTranslator} from './src/prompts/translation.js';
 import {WORLD_NAME,mergeWorldEntries,mergeRegexRules,bundledWorldTargets,migrateWorldBindings} from './src/resources/resources.js';
 import { writeSecret, SECRET_KEYS } from '../../../secrets.js';
@@ -65,9 +66,16 @@ import {downloadImageSelection} from './src/images/downloads.js';
 import {migrateSwipeImages,readSwipeImage,writeSwipeImage,moveSwipeImage,swipeImageRecords,removeSwipeImages} from './src/chat/swipe-history.js';
 import { defaults, parseBodyBlocks, maskReasoning, renderedBlockRange, buildRequest, latestImageMessage, canAutoGenerate, validateFolder, imageDay, imageURL, normalizeProfile, delimiterPattern } from './src/core/core.js';
 
+const bootController=new AbortController();
+const bootKey=Symbol.for('meow.settings.bootstrap');
+window[bootKey]?.abort();window[bootKey]=bootController;
+window.addEventListener('pagehide',()=>bootController.abort(),{once:true});
+async function bootstrap(){
 await (window.__TAURITAVERN__?.ready??window.__TAURITAVERN_MAIN_READY__);
 const isTT=()=>Boolean(window.__TAURITAVERN__);
 const ID='miao_nai_image';
+await waitForHostSettingsReady({isReady:()=>bindingHostScript.settingsReady,source:getContext().eventSource,event:getContext().eventTypes.SETTINGS_LOADED,signal:bootController.signal});
+const accountScope=getCurrentUserHandle();
 const base=new URL('.',import.meta.url);
 const ctx=()=>getContext();
 const requestQueue=createQueueTransport({getHeaders:()=>ctx().getRequestHeaders(),allowRelay:()=>!isTT()});
@@ -117,14 +125,29 @@ const characterBindings=createCharacterBindingsSession({context:ctx,persona:()=>
     if(settings.eggProfileEnabled)selected.push(settings.profiles.find(p=>p.id===settings.eggProfileId));
     return selected.filter(Boolean).map(p=>p.model);
 }});
-const promptInjection=createPromptInjection({context:ctx,settings,bindings:characterBindings,onError:error=>errorPopup(error,{category:'提示词'})});
-let promptConfigSaving=false,promptStarted=false;
+let promptConfigReady=false;
+const promptInjection=createPromptInjection({context:ctx,settings,isReady:()=>promptConfigReady,bindings:characterBindings,onError:error=>errorPopup(error,{category:'提示词'})});
+let promptStarted=false,promptRevision=0,pendingPrompt=null;
+// This stable host view reads non-prompt fields from the live object, never a migration snapshot.
+const pendingView=new Proxy(settings,{
+    get:(target,key)=>key==='promptConfig'&&pendingPrompt?pendingPrompt:Reflect.get(target,key),
+    ownKeys:target=>pendingPrompt?[...new Set([...Reflect.ownKeys(target),'promptConfig'])]:Reflect.ownKeys(target),
+    getOwnPropertyDescriptor:(target,key)=>key==='promptConfig'&&pendingPrompt?{enumerable:true,configurable:true,value:pendingPrompt}:Reflect.getOwnPropertyDescriptor(target,key),
+});
+const ownsSettings=()=>!bootController.signal.aborted&&getCurrentUserHandle()===accountScope&&[settings,pendingView].includes(extension_settings[ID]);
+const syncSettingsView=()=>{if(!ownsSettings())throw new SaveCancelledError();extension_settings[ID]=pendingPrompt?pendingView:settings;};
 const refreshPrompt=()=>{if(!promptStarted)return;try{promptInjection.update();}catch{}};
-const save=()=>{if(promptConfigSaving)return;extension_settings[ID]=settings;if(settings.promptConfig?.version===2)refreshPrompt();return ctx().saveSettingsDebounced();};
-if(generationOptionsMigrated||connectionMigrated||generationModeMigrated)save();
+const save=()=>{syncSettingsView();if(settings.promptConfig?.version===2)refreshPrompt();return ctx().saveSettingsDebounced();};
 const enqueue=run=>{const job=queue.then(run);queue=job.catch(()=>{});return job;};
-const persistSettings=()=>persistHostSettings({saveNow:async()=>{const host=await import('../../../../script.js');return host.saveSettings();},source:ctx().eventSource,event:ctx().eventTypes.SETTINGS_UPDATED});
-const favorites=createFavorites({settings,persist:persistSettings});
+const saveCoordinator=createSettingsSaveCoordinator({saveNow:()=>bindingHostScript.saveSettings(),source:ctx().eventSource,event:ctx().eventTypes.SETTINGS_UPDATED,minVerifyIntervalMs:100,isCurrent:ownsSettings});
+bootController.signal.addEventListener('abort',()=>saveCoordinator.dispose(),{once:true});
+const verifyFields=(select,expected)=>()=>verifyPersistedSettings({id:ID,select,expected,fetchSettings:()=>hostFetch('/api/settings/get',{method:'POST',headers:ctx().getRequestHeaders(),body:'{}',cache:'no-store'})});
+const persistSettings=({select=value=>value,key='settings'}={})=>{
+    const expected=structuredClone(select(pendingPrompt?{...settings,promptConfig:pendingPrompt}:settings));
+    return saveCoordinator.submit({key,prepare:syncSettingsView,verifyPersisted:verifyFields(select,expected)});
+};
+if(generationOptionsMigrated||connectionMigrated||generationModeMigrated)save();
+const favorites=createFavorites({settings,persist:()=>persistSettings({key:'favorites',select:s=>s.promptFavorites})});
 const thumbnails=createThumbnails({fetchImage:url=>hostFetch(url),saveImage:saveBase64AsFile});
 const imagePresentation=createImagePresentation({getFormat:()=>settings.exportFormat,fetchImage:url=>hostFetch(url),saveJPEG:async(blob,folder,name)=>saveBase64AsFile(await blobBase64(blob),folder,name,'jpg'),onError:error=>notices.error('JPG 转换失败：'+error.message,'图片预览')});
 const bindImage=(image,url,options)=>imagePresentation.bind(image,url,options);
@@ -137,7 +160,7 @@ async function saveGeneratedImage(data,folder,name){
 ensureProfileIds(settings.profiles);
 for(const warning of reconcileProfileSelection(settings))notices.warning(warning,'配置选择');
 const eggMarkerCache=createEggMarkerCache({read:readResourceMacros,key:()=>settings.promptConfig?.version===2?settings.promptConfig.params.eggMarker:settings.promptConfig?.fixed?.彩蛋标签});
-const profilePreviews=createProfilePreviews({profiles:()=>settings.profiles,library:()=>settings.vibeLibrary,prompt:()=>settings.samplePrompt,onQueued:()=>notices.info('例图已加入生图队列','喵喵文生图'),enqueue,generate:requestImage,saveImage:(data,scope)=>saveGeneratedImage(data,scope.folder,`sample-${Date.now()}-${randomId()}`),persist:persistSettings,onChange:()=>settingsHost?.dispatchEvent(new Event('miao-profile-previews')),onError:error=>generationError(error)});
+const profilePreviews=createProfilePreviews({profiles:()=>settings.profiles,library:()=>settings.vibeLibrary,prompt:()=>settings.samplePrompt,onQueued:()=>notices.info('例图已加入生图队列','喵喵文生图'),enqueue,generate:requestImage,saveImage:(data,scope)=>saveGeneratedImage(data,scope.folder,`sample-${Date.now()}-${randomId()}`),persist:({profileId})=>persistSettings({key:'profile-preview:'+profileId,select:s=>s.profiles.find(p=>p.id===profileId)?.preview}),onChange:()=>settingsHost?.dispatchEvent(new Event('miao-profile-previews')),onError:error=>generationError(error)});
 const directUser=getCurrentUserHandle(),directVault=createKeyVault(directUser);
 const customVault=createKeyVault(JSON.stringify([directUser,'custom-novelai']));
 const activeVault=()=>settings.naiConnection==='custom'?customVault:directVault;
@@ -587,15 +610,22 @@ function observeChat(){
 }
 
 async function savePromptConfig(next,{inject=true}={}){
-    if(promptConfigSaving)throw Error('提示词配置正在保存，请稍后重试');promptConfigSaving=true;
-    try{
-        await savePromptCandidate(next,{persist:async candidate=>{
-            const previous=extension_settings[ID];extension_settings[ID]={...settings,promptConfig:candidate};
-            try{await persistSettings();}finally{extension_settings[ID]=previous;}
-        },commit:candidate=>{settings.promptConfig=candidate;extension_settings[ID]=settings;}});
-        eggMarkerCache.invalidate();
-    }finally{promptConfigSaving=false;}
-    if(inject){try{await promptInjection.reload();}catch(error){errorPopup(promptConfigError('binding-prepare',error));}}
+    let revision;
+    await savePromptCandidate(next,{
+        isCurrent:()=>ownsSettings()&&revision===promptRevision,
+        persist:(candidate,{confirm})=>{revision=++promptRevision;return saveCoordinator.submit({key:'prompt',
+            prepare:()=>{syncSettingsView();pendingPrompt=candidate;extension_settings[ID]=pendingView;},
+            verifyPersisted:verifyFields(s=>s.promptConfig,candidate),
+            isCurrent:()=>revision===promptRevision,
+            onConfirmed:confirm,
+        });},
+        commit:candidate=>{
+            // Keep the runtime editable; the transaction's immutable candidate is retained by its verifier.
+            settings.promptConfig=structuredClone(candidate);promptConfigReady=true;pendingPrompt=null;extension_settings[ID]=settings;
+            eggMarkerCache.invalidate();
+            if(promptStarted||inject)void promptInjection.reload().catch(error=>errorPopup(promptConfigError('binding-prepare',error)));
+        },
+    });
 }
 async function readResourceMacros(){return fixedMacroSnapshot(settings.promptConfig);}
 async function saveResourceMacros(snapshot,values){
@@ -610,7 +640,7 @@ let resourceInstallPromise=null;
 function installDefaults(){
     if(!resourceInstallPromise)resourceInstallPromise=(async()=>{
         const response=await checkedFetch('regex-install',new URL('assets/regex.json',base));
-        await installRegex(await response.json());settings.installed=true;await persistSettings();
+        await installRegex(await response.json());settings.installed=true;await persistSettings({key:'installed',select:s=>s.installed});
     })().finally(()=>resourceInstallPromise=null);
     return resourceInstallPromise;
 }
@@ -824,7 +854,7 @@ async function showPrompt(prompt,vibes=[],profileName='',pending=false,vibeEnabl
 async function importVibeFiles(files){
     const items=await readVibeFiles(files);
     const result=await direct.import({data:{vibes:items}});
-    try{await persistSettings();}catch(error){throw Error(`已写入 ${result.length} 个 Vibe，但列表保存失败，请点击设置「保存」后重试：${error.message}`);}
+    try{await persistSettings({key:'vibes',select:s=>s.vibeLibrary});}catch(error){throw Error(`已写入 ${result.length} 个 Vibe，但列表保存未完成，请点击设置「保存」后重试：${error.message}`);}
     notices.success(`已导入 ${result.length} 个 Vibe`);return result;
 }
 async function exportVibeFiles(ids){
@@ -1028,15 +1058,17 @@ function scheduleRender(automatic=false) {
     clearTimeout(timer);timer=setTimeout(()=>guard(()=>{const auto=autoScheduled;autoScheduled=false;renderAll();if(auto)autoLatest();})(),80);
 }
 async function init() {
-    mountMenu();refreshFloating();const c=ctx();
+    const c=ctx();
     if(c.eventTypes.WORLDINFO_UPDATED)c.eventSource.on(c.eventTypes.WORLDINFO_UPDATED,()=>eggMarkerCache.invalidate());
     let promptConfigValid=false;
     try{
         let next=settings.promptConfig;
         if(!next){const name=[settings.world,...bundledWorldTargets(wi.world_names,settings.world)].find(n=>n&&wi.world_names.includes(n));const book=name?await wi.loadWorldInfo(name):null;if(name&&!book)throw Error('无法读取旧世界书');next=book&&!newInstallation?migratePromptSettings(book):defaultPromptSettings();}
         const candidate=migrateTreeSettings(next);
-        if(candidate!==settings.promptConfig)await savePromptConfig(candidate,{inject:false});promptConfigValid=true;
+        if(candidate!==settings.promptConfig)await savePromptConfig(candidate,{inject:false});promptConfigValid=true;promptConfigReady=true;
     }catch(error){errorPopup(error.stage?error:promptConfigError('upgrade',error));}
+    if(!ownsSettings())return;
+    mountMenu();refreshFloating();
     const reloadBindingContext=async()=>{characterBindings.invalidate();try{await promptInjection.reload();}catch(error){if(characterBindings.state()==='error')errorPopup(promptConfigError('binding-prepare',error));}};
     promptStarted=true;
     if(promptConfigValid)await reloadBindingContext();else promptInjection.clear();
@@ -1090,4 +1122,11 @@ async function init() {
 
 
 }
-jQuery(()=>guard(init)());
+await init();
+}
+// Never return bootstrap to the extension activation hook or await it at module scope.
+let bootstrapPromise;
+jQuery(()=>{void (bootstrapPromise??=bootstrap()).catch(error=>{
+    if(error?.status==='cancelled')return;
+    toastr.error(redactErrorText(error?.message||'扩展启动未完成'),'喵喵文生图',{escapeHtml:true});
+});});

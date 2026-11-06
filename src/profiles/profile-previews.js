@@ -58,7 +58,7 @@ export function createProfilePreviews({profiles,library,prompt=()=>SAMPLE_PROMPT
                 const url=await saveImage(data,scope);
                 const target=current(profile.id,signature);if(!target||jobs.get(profile.id)!==job)return;
                 target.preview={url,signature,request:structuredClone(request),created:Date.now()};onChange();
-                try{await persist();}catch(error){throw Error('例图已生成，但配置保存失败，请再次保存配置：'+error.message);}
+                try{await persist({profileId:profile.id});}catch(error){throw Error('例图已生成，但配置保存未完成，请再次保存配置：'+error.message);}
             }).catch(error=>{job.error=String(error.message||error);onError(error);}).finally(()=>{job.busy=false;onChange();});
             return job.promise;
         },

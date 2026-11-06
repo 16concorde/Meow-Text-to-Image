@@ -30,6 +30,7 @@ export function createCharacterBindingsSession({context,persona,storage,mode,mod
         roster(){if(!bindingMode())return '';return bindingRoster(rows());},
         async prepare({verify=true}={}){
             if(!bindingMode())return;
+            await management?.awaitConfirmed?.(identity().owners.map(owner=>({type:owner.type,locator:owner.stableKey})));
             await load();
             chatSettings?.assertCurrentConfirmed();
             if(verify&&management)await management.verifySources(current().entries);

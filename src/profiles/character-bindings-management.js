@@ -6,7 +6,7 @@ import {createBindingLRU} from './character-bindings-index.js';
 
 // Browsing has no relationship to the generation session's selected owners.
 export function createCharacterBindingsManagement({storage,host,locks=globalThis.navigator?.locks}){
-    const cache=createBindingLRU(),inflight=new Map(),listeners=new Set();let activeScope=host.scope(),index=null,queue=Promise.resolve();
+    const cache=createBindingLRU(),inflight=new Map(),pendingSaves=new Map(),listeners=new Set();let activeScope=host.scope(),index=null,queue=Promise.resolve();
     function checkScope(expected=activeScope){if(host.scope()!==expected){cache.clear();index=null;inflight.clear();activeScope=host.scope();throw Error('账户或数据集已改变，请重新进入管理');}}
     const notify=change=>{for(const fn of listeners)fn(change);};
     const serial=fn=>{const expected=host.scope(),job=queue.then(async()=>{checkScope(expected);return locks?.request?locks.request('meow-owners:'+expected,fn):fn();});queue=job.catch(()=>{});return job;};
@@ -67,12 +67,13 @@ export function createCharacterBindingsManagement({storage,host,locks=globalThis
     }
     const api={
         host,storage,cache,records,list:targetList,listenerCount:()=>listeners.size,
+        async awaitConfirmed(targets){for(const target of targets){const operation=pendingSaves.get(host.scope()+ownerLocatorKey(target));if(operation)await operation;}},
         subscribe(fn){listeners.add(fn);return ()=>listeners.delete(fn);},
         async open(target,{fresh=false,create=false}={}){
             checkScope();const key=ownerLocatorKey(target),expected=host.scope();if(!fresh&&!create){const found=cache.get(key);if(found)return found;if(inflight.has(key))return inflight.get(key);}
             const promise=serial(()=>openUncached(target,{create})).then(entry=>{checkScope(expected);return structuredClone({...entry,scope:expected});}).finally(()=>inflight.delete(key));inflight.set(key,promise);return promise;
         },
-        async save(entry,archive){return serial(async()=>{
+        save(entry,archive){const operationKey=host.scope()+ownerLocatorKey(entry.target),job=serial(async()=>{
             const target=entry.target,expected=host.scope();if(entry.scope!==expected)throw Error('账户或数据集已改变，旧草稿不能写入新账户');let current=entry;
             validateBindingArchive(archive);assertArchiveEvolution(entry.archive,archive);
             if(!entry.record){const allocated=await recordFor(target,{fresh:true});if(allocated?.state==='ready')throw Object.assign(Error('此对象已建立档案，请刷新并比较后再保存草稿'),{saveState:'conflict',latest:(await storage.load({type:target.type,ownerId:allocated.ownerId})).archive});if(allocated){const existing=await storage.load({type:target.type,ownerId:allocated.ownerId});if(existing.archive.bindings.length)throw Error('迁移或创建已在另一窗口开始，请刷新后继续');}current=await openUncached(target,{create:true});archive={...structuredClone(archive),schemaVersion:2,owner:current.archive.owner,revision:current.archive.revision};}
@@ -81,7 +82,7 @@ export function createCharacterBindingsManagement({storage,host,locks=globalThis
             let saved;try{saved=await storage.save(archive,current.hash);}catch(error){cache.delete(ownerLocatorKey(target));error.baseEntry=current;throw error;}
             checkScope(expected);const updatedRecord={...current.record,archiveRevision:saved.archive.revision};
             const result={...current,...saved,record:updatedRecord,scope:expected};cache.set(ownerLocatorKey(target),result);notify({target,kind:'saved'});return result;
-        });},
+        });pendingSaves.set(operationKey,job);job.then(()=>{if(pendingSaves.get(operationKey)===job)pendingSaves.delete(operationKey);},error=>{if(!['unknown','unconfirmed'].includes(error.saveState)&&pendingSaves.get(operationKey)===job)pendingSaves.delete(operationKey);});return job;},
         invalidate(target){if(target)cache.delete(ownerLocatorKey(target));else cache.clear();},
         async independent(target){return serial(async()=>{
             const existing=await recordFor(target,{fresh:true});if(existing?.state==='pending'&&existing.operationKind==='independent')return complete(target,existing,null);

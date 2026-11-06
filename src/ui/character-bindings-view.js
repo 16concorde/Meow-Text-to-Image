@@ -1,5 +1,5 @@
 import {createBindingDraftStore} from '../platform/character-binding-drafts.js';
-import {bindingNode as n,bindingAction as action} from './character-binding-controls.js';
+import {bindingNode as n,bindingAction as action,bindingIcon as icon} from './character-binding-controls.js';
 import {createBindingSelector} from './character-binding-selector.js';
 import {createBindingOwnerEditor} from './character-binding-editor.js';
 import {createBindingChatView} from './character-binding-chat-view.js';
@@ -11,49 +11,44 @@ export function createCharacterBindingsView({session,settings,onError}){
     const memory=previousMemory?.scope===viewScope?previousMemory:{scope:viewScope,drafts:new Map()};viewMemory.set(management,memory);
     const draftStore=createBindingDraftStore({scope:management.host.scope,enabled:()=>management.host.scope()===viewScope&&management.host.canPersistDrafts()});let draftTimer;
     const persistDrafts=()=>management.host.scope()!==viewScope?Promise.resolve():draftStore.save(memory.drafts).catch(error=>{const status=root.querySelector('[data-management-status]');if(status)status.textContent=error.message;});
-    let route={page:'home'},stack=[],page=null,disposed=false,epoch=0,confirmation=null,previousBack,backHook,observer,parentDialog;
+    let route={page:'home'},stack=[],page=null,navigating=false,disposed=false,epoch=0,confirmation=null,previousBack,backHook,observer,parentDialog;
     const routeKey=r=>r.page==='owner'?JSON.stringify(['owner',r.target.type,r.target.locator]):r.page==='chat'?chatSettings.key({...r.chatRef,cardOwnerId:undefined}):null;
     function draftFor(r){const key=routeKey(r);if(!key)return {};if(!memory.drafts.has(key)){if(memory.drafts.size>=8){const clean=[...memory.drafts].find(([,d])=>!d.dirty);if(!clean)throw Error('已有 8 份未保存草稿，请先保存或放弃后再打开对象');memory.drafts.delete(clean[0]);}memory.drafts.set(key,{defaults:{},values:{}});}return memory.drafts.get(key);}
     const fail=error=>{const status=root.querySelector('[data-management-status]');if(status)status.textContent=error.message;onError(error);};
-    function choose(message,options){if(confirmation)return Promise.resolve('cancel');const layer=n('section',undefined,'miao-binding-confirm');layer.setAttribute('role','dialog');layer.setAttribute('aria-label','未保存资料');layer.append(n('p',message));root.append(layer);return new Promise(resolve=>{confirmation=value=>{layer.remove();confirmation=null;resolve(value);};for(const [value,label] of options)action(layer,label,()=>confirmation(value),fail);layer.querySelector('button')?.focus();});}
-    async function guardLeave(){await persistDrafts();await draftStore.settled();if(confirmation){confirmation('cancel');return false;}const draft=memory.drafts.get(routeKey(route));if(!draft?.dirty)return true;const choice=await choose('有未保存的资料；离开前如何处理？',[['save','保存'],['discard','放弃'],['cancel','继续编辑']]);if(choice==='save'){try{await page.save();await persistDrafts();await draftStore.settled();return !draft.dirty;}catch(error){fail(error);return false;}}if(choice==='discard'){memory.drafts.delete(routeKey(route));await persistDrafts();await draftStore.settled();return true;}return false;}
-    function go(next,{replace=false}={}){if(disposed)return;void persistDrafts();if(!replace)stack.push({...route});route=next;paint();}
-    function back(){if(confirmation){confirmation('cancel');return true;}if(!stack.length)return false;void persistDrafts();route=stack.pop();paint();return true;}
+    function choose(message,options){if(confirmation)return Promise.resolve('cancel');const returnFocus=document.activeElement,layer=n('section',undefined,'miao-binding-confirm');layer.setAttribute('role','dialog');layer.setAttribute('aria-modal','true');layer.onkeydown=e=>{if(e.key!=='Tab')return;const buttons=[...layer.querySelectorAll('button')],first=buttons[0],last=buttons.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}};layer.setAttribute('aria-label','未保存资料');layer.append(n('p',message));root.append(layer);return new Promise(resolve=>{confirmation=value=>{layer.remove();confirmation=null;if(returnFocus?.isConnected)returnFocus.focus({preventScroll:true});resolve(value);};for(const [value,label] of options)action(layer,label,()=>confirmation(value),fail);layer.querySelector('button')?.focus();});}
+    async function guardLeave(){try{await page?.flushPending?.();}catch(error){fail(error);return false;}if(page?.hasFailure?.()){const choice=await choose('保存尚未确认，请重试／查证或继续编辑。',[['retry','重试／查证'],['cancel','继续编辑']]);if(choice!=='retry')return false;try{await page.save();}catch(error){fail(error);return false;}}await persistDrafts();await draftStore.settled();if(confirmation){confirmation('cancel');return false;}const draft=memory.drafts.get(routeKey(route));if(!draft?.dirty)return true;const choice=await choose('有未保存的资料；离开前如何处理？',[['save','保存'],['discard','放弃'],['cancel','继续编辑']]);if(choice==='save'){try{await page.save();await persistDrafts();await draftStore.settled();return !draft.dirty;}catch(error){fail(error);return false;}}if(choice==='discard'){memory.drafts.delete(routeKey(route));await persistDrafts();await draftStore.settled();return true;}return false;}
+    async function go(next,{replace=false}={}){if(disposed||navigating)return;navigating=true;try{if(!await guardLeave())return;if(!replace)stack.push({...route});route=next;paint();}finally{navigating=false;}}
+    function back(){if(confirmation){confirmation('cancel');return true;}if(!stack.length)return false;if(navigating)return true;navigating=true;void (async()=>{try{if(!await guardLeave())return;route=stack.pop();paint();}finally{navigating=false;}})().catch(fail);return true;}
+    const stateChanged=()=>root.dispatchEvent(new CustomEvent('miao-binding-save-state',{bubbles:true}));
     function paint(){
-        const token=++epoch;page?.dispose();page=null;root.replaceChildren();const toolbar=n('div',undefined,'miao-actions'),status=n('p','','miao-muted');status.dataset.managementStatus='true';root.append(toolbar,status);
-        if(stack.length)action(toolbar,'返回上一级',back,fail);
+        const token=++epoch;page?.dispose();page=null;root.replaceChildren();const status=n('p','','miao-muted');status.dataset.managementStatus='true';root.append(status);
         try{
             const draft=draftFor(route);
             if(route.page==='home'){
-                root.append(n('p',draftStore.available()?'未保存草稿可在本机恢复 7 天；跨设备请保存到宿主文件。':'当前环境草稿仅保留在内存，关页前请保存角色资料。'));
-                root.append(n('h3','角色绑定'),n('p','（功能制作与测试中，先别使用）资料由角色卡／用户设定共享，聊天只覆盖启停。'));
                 if(hostGroup())root.append(n('p','群聊暂不支持绑定生成；仍可管理单个角色卡与用户设定。'));
-                action(root,'用户设定管理',()=>go({page:'select',type:'user'}),fail);action(root,'角色管理',()=>go({page:'select',type:'card'}),fail);action(root,'聊天管理',()=>go({page:'chat-home'}),fail);
-                root.append(n('p',settings.promptConfig?.mode==='external'?'外部世界书模式：可管理资料，内置绑定指令不注入。':'管理其他对象不会改变当前聊天的绑定名单。'));
+                for(const [label,symbol,next] of [['用户设定管理','face-smile',{page:'select',type:'user'}],['角色管理','address-card',{page:'select',type:'card'}],['聊天管理','address-book',{page:'chat-home'}]]){const button=icon(root,label,symbol,()=>go(next),fail,{text:true});button.classList.add('miao-binding-nav');button.append(n('span','›','miao-overview-arrow'));}
+                if(settings.promptConfig?.mode==='external')root.append(n('p','外部世界书模式：可管理资料，内置绑定指令不注入。'));
             }else if(route.page==='select')page=createBindingSelector({management,type:route.type,route,onError:fail,onSelect:target=>{
                 if(route.forChat)go({page:'chats',target});else if(route.previewFor)go({...route.previewFor,page:'chat',previewPersona:target.locator});else go({page:'owner',target});
             }});
-            else if(route.page==='owner')page=createBindingOwnerEditor({management,route,draft,onError:fail,onChat:target=>go({page:'chats',target}),onState:async(state,options)=>{
-                if(state==='refresh'){const value=await choose('刷新只重新读取资料，不更改编号。如何处理草稿？',[['keep','保留草稿并刷新'],['discard','放弃后刷新'],['cancel','取消']]);if(value==='keep')await options.preserve();if(value==='discard')await options.discard();}
-
-            }});
+            else if(route.page==='owner')page=createBindingOwnerEditor({management,route,draft,onError:fail,onChat:target=>go({page:'chats',target}),onState:stateChanged});
             else if(route.page==='chat-home'){
                 const current=chatSettings.current();if(!current)root.append(n('p','请先在酒馆打开聊天'));
                 action(root,'载入当前聊天',()=>{const now=chatSettings.current();if(!now)throw Error('请先在酒馆打开聊天');go({page:'chat',chatRef:now});},fail).disabled=!current;
                 action(root,'选择角色卡的聊天',()=>go({page:'select',type:'card',forChat:true}),fail);
-            }else if(['chats','chat'].includes(route.page))page=createBindingChatView({management,chatSettings,route,draft,onError:fail,onSelectChat:chatRef=>go({page:'chat',chatRef}),onOwner:target=>target?go({page:'owner',target}):go({page:'select',type:'user',previewFor:{...route}})});
+            }else if(['chats','chat'].includes(route.page))page=createBindingChatView({management,chatSettings,route,draft,onState:stateChanged,onError:fail,onSelectChat:chatRef=>go({page:'chat',chatRef}),onOwner:target=>target?go({page:'owner',target}):go({page:'select',type:'user',previewFor:{...route}})});
 
             if(page)root.append(page.element);
         }catch(error){fail(error);}root.closest('.miao-panel-body')?.scrollTo({top:0});
-        if(token!==epoch)return;
+        if(token!==epoch)return;stateChanged();
     }
     const hostGroup=()=>!!management.host.context().groupId;
     const keydown=e=>{if(e.key==='Enter'&&e.target.matches('input,textarea,select')){e.stopPropagation();return;}if(e.key!=='Escape')return;if(back()){e.preventDefault();e.stopImmediatePropagation();}};
-    root.back=back;root.guardLeave=guardLeave;root.diagnostics=()=>({history:stack.length,drafts:memory.drafts.size,listeners:management.listenerCount(),cache:management.cache.stats()});
+    root.back=back;root.guardLeave=guardLeave;root.save=async()=>{await page?.save?.();await persistDrafts();stateChanged();};root.flushPending=()=>page?.flushPending?.();root.canSave=()=>!!page?.canSave?.();root.hasPending=()=>!!page?.hasPending?.();root.diagnostics=()=>({history:stack.length,drafts:memory.drafts.size,listeners:management.listenerCount(),cache:management.cache.stats()});
     root.dispose=()=>{if(disposed)return;void persistDrafts();clearTimeout(draftTimer);disposed=true;epoch++;page?.dispose();unsubscribe();root.removeEventListener('input',scheduleDraft);root.removeEventListener('change',scheduleDraft);root.removeEventListener('click',scheduleDraft);document.removeEventListener('visibilitychange',onVisibility);observer?.disconnect();parentDialog?.removeEventListener('close',root.dispose);root.removeEventListener('keydown',keydown,true);if(backHook&&window.__TAURITAVERN_HANDLE_BACK__===backHook)window.__TAURITAVERN_HANDLE_BACK__=previousBack;if(confirmation)confirmation('cancel');};
     const unsubscribe=management.subscribe(change=>{
         if(disposed||['saved','initialized','identity'].includes(change.kind))return;
-        const status=root.querySelector('[data-management-status]');if(status)status.textContent='宿主资料已变化，可刷新列表或当前对象；未保存草稿保留。';
+        const status=root.querySelector('[data-management-status]');if(status)status.textContent='宿主资料已变化，请重新进入对象核对；未保存草稿保留。';
         if(['CHAT_RENAMED','CHARACTER_RENAMED'].includes(change.name)){
             let changed=false;
             for(const r of [route,...stack]){

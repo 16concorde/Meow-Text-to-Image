@@ -39,3 +39,14 @@ test('disabled binding tags keep other D0 modules without loading archives',asyn
 });
 
 test('custom legacy cot boundary is blocked rather than discarded',()=>{const old=structuredClone(history[0].config);old.fixed.cot_xml='CUSTOM_BOUNDARY';const before=structuredClone(old);assert.throws(()=>migrateTreeSettings(old),/无法无损/);assert.deepEqual(old,before);});
+
+test('pending migration cannot publish an unsafe runtime config through later chat events',async()=>{
+ let ready=false;const calls=[];
+ const injection=createPromptInjection({settings:{enabled:true,promptConfig:{mode:'builtin',version:1}},isReady:()=>ready,context:()=>({chat:[],setExtensionPrompt:(id,text)=>calls.push(text)}),onError:()=>assert.fail('pending legacy configuration must remain inactive')});
+ await injection.reload();await injection.begin();injection.input();injection.reset();assert.ok(calls.every(t=>t===''));
+});
+test('candidate is detached and immutable during asynchronous persistence; late confirm runs once',async()=>{
+ const input=defaultTreeSettings();input.params.persona='ORIGINAL';let candidate,confirm,release,commits=0;
+ const job=savePromptCandidate(input,{persist:async(value,controls)=>{candidate=value;confirm=controls.confirm;await new Promise(r=>release=r);},commit:()=>commits++});
+ input.params.persona='CHANGED';assert.equal(candidate.params.persona,'ORIGINAL');assert.throws(()=>candidate.params.persona='MUTATED',TypeError);confirm();confirm();release();await job;assert.equal(commits,1);
+});

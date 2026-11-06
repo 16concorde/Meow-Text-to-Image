@@ -20,7 +20,7 @@ export function protectedFavoriteImages(favorites,base){return new Set(favorites
 export function createFavorites({settings,persist,base=()=>location.href}){
     settings.promptFavorites??=[];
     let queue=Promise.resolve();
-    const mutate=fn=>{const job=queue.then(async()=>{const before=structuredClone(settings.promptFavorites);try{const result=fn();await persist();return result;}catch(error){settings.promptFavorites=before;throw error;}});queue=job.catch(()=>{});return job;};
+    const mutate=fn=>{const job=queue.then(async()=>{const before=structuredClone(settings.promptFavorites);try{const result=fn();await persist();return result;}catch(error){if(!['unconfirmed','superseded','cancelled'].includes(error.status))settings.promptFavorites=before;throw error;}});queue=job.catch(()=>{});return job;};
     return {
         list:()=>settings.promptFavorites,
         save:value=>mutate(()=>{const item=validateFavorite(value,base()),now=Date.now(),previous=settings.promptFavorites.find(old=>old.id===item.id);item.id=previous?.id||randomId();item.created=previous?.created||now;item.updated=now;const at=settings.promptFavorites.indexOf(previous);if(at<0)settings.promptFavorites.unshift(item);else settings.promptFavorites[at]=item;return item;}),

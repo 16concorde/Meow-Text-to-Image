@@ -3,7 +3,7 @@ import {normalizeOwnerKey,validBindingUuid} from '../profiles/character-bindings
 export const OWNER_FIELD='meow_t2i';
 export function projectBindingOwner(type,item){
     const locator=normalizeOwnerKey(item.avatar??item.locator);
-    return {type,locator,stableKey:locator,name:String(item.name||'未命名用户设定'),title:String(item.title||'').slice(0,1000),description:String(item.description||'').slice(0,512),source:item.source||'native'};
+    return {type,locator,stableKey:locator,name:String(item.name||'未命名用户设定'),title:String(item.title||'').slice(0,1000),description:String(item.description||item.data?.description||'').slice(0,512),source:item.source||'native'};
 }
 export function createCharacterBindingHost({context,persona,account=()=>'',tt=()=>globalThis.window?.__TAURITAVERN__,fetchImpl=fetch,busy=()=>false,writeExtensionField}){
     const listeners=new Set(),priorities=new Map(),thumbnailVersions=new Map();let subscriptions=[],epoch=0;

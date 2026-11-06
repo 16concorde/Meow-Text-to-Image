@@ -147,3 +147,30 @@ test('old empty and saved owner drafts cannot publish into a changed account',as
  const f=managementFixture(),target=(await f.management.list('card'))[1],empty=await f.management.open(target),{entry}=await saved(f);f.account='other-account';const writes=()=>f.requests.filter(r=>r.url==='/api/files/upload'||r.url==='/api/characters/merge-attributes').length,before=writes();
  await assert.rejects(f.management.save(empty,editBinding(empty.archive,fields)),/账户/);await assert.rejects(f.management.save(entry,editBinding(entry.archive,{name:'Do not transfer'},entry.archive.bindings[0].uuid)),/账户/);assert.equal(writes(),before);
 });
+
+test('automatic save forbids implicit ST navigation, including target changes while queued',async()=>{
+ const f=managementFixture(),{target}=await saved(f,1);f.storeChat(target.locator,'offline',{integrity:'offline',unrelated:{keep:true}});
+ const state=await f.chatSettings.read({target,fileName:'offline'}),row=f.chatSettings.rows(state)[0],key=bindingSwitchKey(row.owner,row);
+ assert.equal(f.chatSettings.writable(state.ref),false);
+ const before=f.requests.length;await assert.rejects(f.chatSettings.save(state,{[key]:false},{allowOpen:false}),/打开此聊天/);
+ assert.equal(f.context.characterId,0);assert.equal(f.context.chatId,'chat-a');assert.equal(f.requests.slice(before).some(r=>r.url.includes('save')),false);
+ await f.chatSettings.openChat(state.ref);assert.equal(f.context.characterId,1);assert.equal(f.context.chatId,'offline');assert.equal(f.chats.get(f.chatKey(target.locator,'offline'))[0].chat_metadata.extensions,undefined);
+ const fresh=await f.chatSettings.read(state.ref);assert.equal(f.chatSettings.writable(fresh.ref),true);
+ const job=f.chatSettings.save(fresh,{[key]:false},{allowOpen:false});f.context.characterId=0;f.context.chatId='chat-a';
+ await assert.rejects(job,/打开此聊天/);assert.equal(f.context.characterId,0);assert.equal(f.chats.get(f.chatKey(target.locator,'offline'))[0].chat_metadata.extensions,undefined);
+});
+test('explicit chat boolean survives equal defaults while inherit removes only its exact key',async()=>{
+ const f=managementFixture(),{entry}=await saved(f),ref=f.chatSettings.current(),state=await f.chatSettings.read(ref),row=f.chatSettings.rows(state)[0],key=bindingSwitchKey(row.owner,row);
+ state.settings.values['unrecognized-owner:unrecognized-binding']=false;
+ const explicit=await f.chatSettings.save(state,{[key]:row.defaultEnabled},{allowOpen:false});assert.equal(Object.hasOwn(explicit.settings.values,key),true);
+ const inherited=await f.chatSettings.save(explicit,{[key]:'inherit'},{allowOpen:false});assert.equal(Object.hasOwn(inherited.settings.values,key),false);assert.equal(inherited.settings.values['unrecognized-owner:unrecognized-binding'],false);
+ const next=editBinding(entry.archive,{defaultEnabled:false},row.uuid),updated=await f.management.save(entry,next);inherited.entries=[updated];assert.equal(f.chatSettings.rows(inherited)[0].enabled,false);
+});
+test('generation waits for owner confirmation and blocks current-chat writes from their queue boundary',async()=>{
+ const f=managementFixture(),{target,entry}=await saved(f);let release,started;const ready=new Promise(resolve=>{started=resolve;});
+ f.onUpload=async body=>{if(body.name===await f.storage.filename(entry.archive.owner)){started();await new Promise(resolve=>{release=resolve;});}};
+ const next=editBinding(entry.archive,{defaultEnabled:false},entry.archive.bindings[0].uuid),job=f.management.save(entry,next);await ready;
+ let settled=false;const barrier=f.management.awaitConfirmed([target]).then(()=>{settled=true;});await Promise.resolve();assert.equal(settled,false);release();await job;await barrier;assert.equal(settled,true);
+ const state=await f.chatSettings.read(f.chatSettings.current()),row=f.chatSettings.rows(state)[0];const saving=f.chatSettings.save(state,{[bindingSwitchKey(row.owner,row)]:false},{allowOpen:false});
+ assert.throws(()=>f.chatSettings.assertCurrentConfirmed(),/保存结果/);await saving;assert.doesNotThrow(()=>f.chatSettings.assertCurrentConfirmed());
+});

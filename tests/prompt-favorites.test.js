@@ -45,3 +45,10 @@ test('多次生成的例图追加到同一条收藏，不覆盖场景词',async(
     await Promise.all([store.addImage(item.id,'/user/images/miao-nai/a.png'),store.addImage(item.id,'/user/images/miao-nai/b.png')]);
     assert.equal(store.list().length,1);assert.equal(store.list()[0].positive,draft.positive);assert.equal(store.list()[0].images.length,3);
 });
+
+test('未确认收藏保留待保存列表，后续重试不回写旧列表',async()=>{
+ const settings={};let pending=true;
+ const store=createFavorites({settings,persist:async()=>{if(pending)throw Object.assign(Error('保存尚未确认'),{status:'unconfirmed'});},base:()=>base});
+ await assert.rejects(store.save(draft),e=>e.status==='unconfirmed');assert.equal(store.list().length,1);const id=store.list()[0].id;
+ pending=false;await store.save({...store.list()[0],name:'重试名称'});assert.equal(store.list().length,1);assert.equal(store.list()[0].id,id);
+});
