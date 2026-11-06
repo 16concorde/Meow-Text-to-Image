@@ -1,9 +1,10 @@
+import {defaultLegacyPromptSettings} from './support/legacy-prompt-settings.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {promptTree,treeById,treeRoots,validatePromptTree} from '../src/prompts/tree-defaults.js';
-import {defaultPromptSettings,defaultLegacyPromptSettings,fixedMacroSnapshot,updateFixedMacros,migratePromptSettings} from '../src/prompts/prompt-settings.js';
+import {defaultPromptSettings,fixedMacroSnapshot,updateFixedMacros,migratePromptSettings} from '../src/prompts/prompt-settings.js';
 import {defaultTreeSettings,effectiveEnabled,savedEnabled,treeText,withTreeText,withTreeEnabled,migrateTreeSettings,promptWarnings} from '../src/prompts/tree-settings.js';
 import {composePrompt} from '../src/prompts/prompt-composer.js';
 import {promptTemplates} from '../src/prompts/prompt-templates.js';
@@ -69,15 +70,9 @@ test('individual switches, sparse overrides and unknown macros survive parent to
  assert.throws(()=>withTreeText(c,'selfcheck',{suffix:''}),/成对/);
 });
 
-test('v1 migration preserves parameters, modules, external mode and versioned original; custom text needs explicit adoption',()=>{
- const v1=defaultLegacyPromptSettings('external');v1.fixed.人格='{{user}}';v1.fixed.彩蛋标签='/fixture';v1.modules.selfCheck=false;v1.modules.nsfw=true;v1.orientation='gl';
- const original=structuredClone(v1),c=migrateTreeSettings(v1);assert.deepEqual(v1,original);assert.equal(c.mode,'external');assert.equal(c.params.persona,'{{user}}');assert.equal(c.params.eggMarker,'/fixture');assert.equal(c.orientation,'GL');assert.equal(c.enabledById.selfcheck,false);assert.equal(c.enabledById['output.subtitle'],true);assert.deepEqual(c.legacyBackup.config,original);assert.equal(c.legacyBackup.config.fixed.cot_xml,'star_cot');assert.equal(migrateTreeSettings(c),c);assert.equal(composePrompt(c),'');
- const v1custom={...defaultLegacyPromptSettings(),overrides:{main:'CUSTOM WHOLE BODY {{user}}'}};
- assert.equal(migrateTreeSettings(v1custom),v1custom);assert.ok(composePrompt(v1custom).includes('CUSTOM WHOLE BODY'));
- const adopted=migrateTreeSettings(v1custom,{adoptTree:true});assert.deepEqual(adopted.legacyBackup.config,v1custom);assert.ok(!composePrompt(adopted).includes('CUSTOM WHOLE BODY'));assert.ok(composePrompt(adopted.legacyBackup.config).includes('CUSTOM WHOLE BODY'));
- const redundant={...defaultLegacyPromptSettings(),overrides:{main:promptTemplates.main.content}};assert.equal(migrateTreeSettings(redundant).version,2);
- assert.throws(()=>migrateTreeSettings({...v1,orientation:'bad'}));assert.deepEqual(v1,original);
- const book={entries:structuredClone(promptTemplates)},before=structuredClone(book),external=migratePromptSettings(book);assert.equal(external.version,2);assert.equal(external.mode,'external');assert.deepEqual(book,before);
+test('v1 defaults convert once; unsplittable custom documents stay untouched and blocked',()=>{
+ const c=defaultLegacyPromptSettings('external');c.fixed.人格='{{user}}';c.modules.selfCheck=false;const original=structuredClone(c),next=migrateTreeSettings(c);assert.equal(next.version,2);assert.equal(next.params.persona,'{{user}}');assert.equal(next.mode,'external');assert.equal(next.enabledById.selfcheck,false);assert.equal(next.legacyBackup,undefined);assert.deepEqual(c,original);assert.equal(migrateTreeSettings(next),next);
+ const custom={...c,overrides:{main:'CUSTOM WHOLE BODY'}};const before=structuredClone(custom);assert.throws(()=>migrateTreeSettings(custom),/无法无损/);assert.deepEqual(custom,before);assert.throws(()=>composePrompt(custom));
 });
 
 test('ordinary parameter saving, marker cache and warnings share the same values',async()=>{
@@ -118,7 +113,7 @@ test('revised task sentence and continuous output format match the requested tex
 test('tree revision migration preserves retired text and choices without keeping obsolete controls',()=>{
  const old=defaultPromptSettings();delete old.treeRevision;old.enabledById['tags.rules']=false;old.enabledById['selfcheck.nsfw']=false;
  old.textOverridesById={'tags.rules':{body:'CUSTOM TAGS'},egg:{body:'CUSTOM EGG',suffix:'CUSTOM END'},'selfcheck.nsfw':{body:'CUSTOM CHECK'}};
- const original=structuredClone(old),next=migrateTreeSettings(old);assert.deepEqual(old,original);assert.equal(next.treeBackup.retiredText.eggSuffix,'CUSTOM END');assert.equal(next.treeBackup.config,undefined);assert.equal(next.enabledById.tags,false);assert.equal(next.enabledById['selfcheck.nsfw'],undefined);assert.equal(next.textOverridesById['tags.full'].body,'CUSTOM TAGS');assert.equal(next.textOverridesById.egg.body,'CUSTOM EGG');assert.equal(next.textOverridesById.egg.suffix,undefined);assert.equal(next.textOverridesById['selfcheck.nsfw'].body,'CUSTOM CHECK');assert.equal(migrateTreeSettings(next),next);
+ const original=structuredClone(old),next=migrateTreeSettings(old);assert.deepEqual(old,original);assert.equal(next.treeBackup,undefined);assert.ok(next.textOverridesById.egg.body.endsWith('CUSTOM END'));assert.equal(next.enabledById.tags,false);assert.equal(next.enabledById['selfcheck.nsfw'],undefined);assert.equal(next.textOverridesById['tags.full'].body,'CUSTOM TAGS');assert.ok(next.textOverridesById.egg.body.startsWith('CUSTOM EGG'));assert.equal(next.textOverridesById.egg.suffix,undefined);assert.equal(next.textOverridesById['selfcheck.nsfw'].body,'CUSTOM CHECK');assert.equal(migrateTreeSettings(next),next);
 });
 
 test('NAI pipe defaults keep structural shells and user overrides while checking character ownership',()=>{

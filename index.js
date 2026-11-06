@@ -7,6 +7,7 @@ import {createCharacterBindingStorage} from './src/platform/character-bindings-s
 import {createCharacterBindingsSession,SNAPSHOTS_KEY,snapshotSlot} from './src/profiles/character-bindings-session.js';
 import {bindingReferences} from './src/prompts/character-binding-prompt.js';
 import {defaultPromptSettings,fixedMacroSnapshot,updateFixedMacros,migratePromptSettings} from './src/prompts/prompt-settings.js';
+import {savePromptCandidate,promptConfigError} from './src/prompts/prompt-config-save.js';
 import {migrateTreeSettings} from './src/prompts/tree-settings.js';
 import {createPromptInjection,bindPromptInjection} from './src/platform/prompt-injection.js';
 import {selectGenerationProfile,reconcileProfileSelection} from './src/profiles/profile-selection.js';
@@ -23,7 +24,7 @@ import {showPagePopup} from './src/ui/page-popup.js';
 import {showPanelPage} from './src/ui/panel-page.js';
 import {showFloatingIconPicker} from './src/ui/icon-picker.js';
 import {defaultFontAwesomeIcon,validFontAwesomeIcon} from './src/ui/fontawesome-icons.js';
-import {createNotifications} from './src/ui/notifications.js';
+import {createNotifications,createErrorNotifier} from './src/ui/notifications.js';
 import {createQueueTransport} from './src/queue/queue-network.js';
 import {hostFetch} from './src/platform/host-fetch.js';
 import {bindButtonPress} from './src/ui/button-press.js';
@@ -45,6 +46,7 @@ import {createPromptTranslator} from './src/prompts/translation.js';
 import {WORLD_NAME,mergeWorldEntries,mergeRegexRules,bundledWorldTargets,migrateWorldBindings} from './src/resources/resources.js';
 import { writeSecret, SECRET_KEYS } from '../../../secrets.js';
 import { getCurrentUserHandle } from '../../../user.js';
+import * as popupAPI from '../../../popup.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../popup.js';
 import * as wi from '../../../world-info.js';
 import { getScriptsByType, saveScriptsByType, SCRIPT_TYPES } from '../../regex/engine.js';
@@ -72,7 +74,7 @@ const requestQueue=createQueueTransport({getHeaders:()=>ctx().getRequestHeaders(
 const updater=createExtensionUpdater({moduleURL:import.meta.url,getHeaders:()=>ctx().getRequestHeaders(),getGlobal:name=>extensionAPI.extensionTypes?.[name]==='global'});
 const newInstallation=extension_settings[ID]==null;
 const settings=extension_settings[ID] ??= {enabled:true,stream:false,pattern:'image###([\\s\\S]*?)###',profiles:[{...defaults}],active:0,installed:false};
-const notices=createNotifications(settings,toastr);
+const notices=createNotifications(settings,toastr,{prepare:()=>{popupAPI.fixToastrForDialogs?.();const container=document.getElementById('toast-container');if(container)container.inert=false;}});
 const generationModeMigrated=migrateGenerationMode(settings);
 settings.theme = 'auto';
 settings.folder ??= 'miao-nai';
@@ -115,9 +117,10 @@ const characterBindings=createCharacterBindingsSession({context:ctx,persona:()=>
     if(settings.eggProfileEnabled)selected.push(settings.profiles.find(p=>p.id===settings.eggProfileId));
     return selected.filter(Boolean).map(p=>p.model);
 }});
-const promptInjection=createPromptInjection({context:ctx,settings,bindings:characterBindings,onError:error=>notices.error(redactErrorText(error?.message||'D0 提示词注入失败，请检查宿主兼容性'),'提示词',{escapeHtml:true})});
-const refreshPrompt=()=>{try{promptInjection.update();}catch{}};
-const save=()=>{if(settings.promptConfig)refreshPrompt();return ctx().saveSettingsDebounced();};
+const promptInjection=createPromptInjection({context:ctx,settings,bindings:characterBindings,onError:error=>errorPopup(error,{category:'提示词'})});
+let promptConfigSaving=false,promptStarted=false;
+const refreshPrompt=()=>{if(!promptStarted)return;try{promptInjection.update();}catch{}};
+const save=()=>{if(promptConfigSaving)return;extension_settings[ID]=settings;if(settings.promptConfig?.version===2)refreshPrompt();return ctx().saveSettingsDebounced();};
 if(generationOptionsMigrated||connectionMigrated||generationModeMigrated)save();
 const enqueue=run=>{const job=queue.then(run);queue=job.catch(()=>{});return job;};
 const persistSettings=()=>persistHostSettings({saveNow:async()=>{const host=await import('../../../../script.js');return host.saveSettings();},source:ctx().eventSource,event:ctx().eventTypes.SETTINGS_UPDATED});
@@ -153,7 +156,7 @@ async function showPopup(content,type,input='',options={}){
         const parent=settingsPopup?.dlg?.isConnected?settingsPopup.dlg:settingsHost?.closest('dialog');
         return parent?showPanelPage(content,{...options,parent}):openSettings(undefined,undefined,{content,options});
     }
-    if(isTT()&&type===POPUP_TYPE.TEXT&&content?.matches?.('.miao-settings,.miao-prompt-view,.miao-error-view'))return showPagePopup(content,{...options,parent:content.matches('.miao-settings')?undefined:settingsHost?.closest('dialog')});
+    if(isTT()&&type===POPUP_TYPE.TEXT&&content?.matches?.('.miao-settings,.miao-prompt-view'))return showPagePopup(content,{...options,parent:content.matches('.miao-settings')?undefined:settingsHost?.closest('dialog')});
     let dispose=()=>{};
     try{return await callGenericPopup(content,type,input,{...options,animation:'none',onOpen:popup=>{
         const dialog=popup.dlg;dialog.classList.add('miao-modal');
@@ -165,17 +168,7 @@ async function showPopup(content,type,input='',options={}){
     }});}finally{dispose();}
 }
 
-const errorDialogs=new Map();
-async function errorPopup(error,{detail=false}={}) {
-    const title=errorTitle(error),summary=redactErrorText(error.message||error).slice(0,2200);
-    if(isTT()&&!detail){notices.error(summary,title,{escapeHtml:true,onclick:()=>{void errorPopup(error,{detail:true});}});return;}
-    if(errorDialogs.has(summary))return errorDialogs.get(summary);
-    const box=el('div',undefined,'miao-prompt-view miao-error-view');box.append(el('h3','喵喵文生图：'+title),el('p',summary.split('\n')[0]));
-    const details=el('details'),copy=el('button','复制诊断摘要','menu_button');details.append(el('summary','错误详情'),el('pre',summary));
-    copy.type='button';copy.onclick=()=>Promise.resolve().then(()=>navigator.clipboard.writeText(summary)).then(()=>{copy.textContent='已复制';}).catch(()=>{copy.textContent='复制失败，请手动选择详情';});box.append(details,copy);
-    const pending=showPopup(box,POPUP_TYPE.TEXT);errorDialogs.set(summary,pending);
-    try{return await pending;}finally{errorDialogs.delete(summary);}
-}
+const errorPopup=createErrorNotifier(notices);
 const guard=fn=>(...args)=>Promise.resolve().then(()=>fn(...args)).catch(errorPopup);
 async function confirmSettings(question,title='确认删除',{parent,confirmLabel='删除'}={}){
     if(pendingSettingsConfirm)return false;
@@ -228,7 +221,7 @@ async function confirmSettings(question,title='确认删除',{parent,confirmLabe
         dialog.addEventListener('keydown',onKey,true);dialog.addEventListener('cancel',onCancel,true);dialog.addEventListener('close',onClose);cancel.focus({preventScroll:true});restoreScroll();
     });
 }
-const generationError=error=>notices.error(redactErrorText(error.message||error),errorTitle(error,'生图失败'),{escapeHtml:true,timeOut:12000,onclick:()=>{void errorPopup(error,{detail:true});}});
+const generationError=error=>errorPopup(error,{category:errorTitle(error,'生图失败')});
 function reasoningFormat(){const r=ctx().powerUserSettings?.reasoning||{};return {prefix:ctx().substituteParams?.(r.prefix||'')??r.prefix,suffix:ctx().substituteParams?.(r.suffix||'')??r.suffix};}
 function blocks(message) { return parseBodyBlocks(message.mes,settings.pattern,reasoningFormat()); }
 const blockSlot=block=>`body:${block.bodyIndex}:${block.prompt}`;
@@ -592,16 +585,17 @@ function observeChat(){
     if(!chatObserver)chatObserver=new MutationObserver(()=>scheduleRender(false));
     observedChat=root;chatObserver.observe(observedChat,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['src','mesid']});
 }
-let promptConfigSaving=false;
-async function savePromptConfig(next){
-    if(next.version===2)next=migrateTreeSettings(next);
-    if(promptConfigSaving)throw Error('提示词配置正在保存，请稍后重试');
-    promptConfigSaving=true;
-    const previous=settings.promptConfig;
-    settings.promptConfig=next;
-    try{await characterBindings.prepare();promptInjection.update();await persistSettings();eggMarkerCache.invalidate();}
-    catch(error){if(settings.promptConfig===next){settings.promptConfig=previous;try{promptInjection.update();}catch{}}throw error;}
-    finally{promptConfigSaving=false;}
+
+async function savePromptConfig(next,{inject=true}={}){
+    if(promptConfigSaving)throw Error('提示词配置正在保存，请稍后重试');promptConfigSaving=true;
+    try{
+        await savePromptCandidate(next,{persist:async candidate=>{
+            const previous=extension_settings[ID];extension_settings[ID]={...settings,promptConfig:candidate};
+            try{await persistSettings();}finally{extension_settings[ID]=previous;}
+        },commit:candidate=>{settings.promptConfig=candidate;extension_settings[ID]=settings;}});
+        eggMarkerCache.invalidate();
+    }finally{promptConfigSaving=false;}
+    if(inject){try{await promptInjection.reload();}catch(error){errorPopup(promptConfigError('binding-prepare',error));}}
 }
 async function readResourceMacros(){return fixedMacroSnapshot(settings.promptConfig);}
 async function saveResourceMacros(snapshot,values){
@@ -1034,28 +1028,18 @@ function scheduleRender(automatic=false) {
     clearTimeout(timer);timer=setTimeout(()=>guard(()=>{const auto=autoScheduled;autoScheduled=false;renderAll();if(auto)autoLatest();})(),80);
 }
 async function init() {
-    mountMenu();refreshFloating();const c=ctx();save();
+    mountMenu();refreshFloating();const c=ctx();
     if(c.eventTypes.WORLDINFO_UPDATED)c.eventSource.on(c.eventTypes.WORLDINFO_UPDATED,()=>eggMarkerCache.invalidate());
-    if(!settings.promptConfig){
-        try{
-            const name=[settings.world,...bundledWorldTargets(wi.world_names,settings.world)].find(n=>n&&wi.world_names.includes(n));
-            const book=name?await wi.loadWorldInfo(name):null;
-            if(name&&!book)throw Error('无法读取旧世界书');
-            settings.promptConfig=book&&!newInstallation?migratePromptSettings(book):defaultPromptSettings();
-        }catch{
-            settings.promptConfig=defaultPromptSettings('external');settings.promptConfig.migration={status:'failed'};
-            notices.warning('旧提示词迁移失败，已保留外部模式；请检查固定配置后再切换。','提示词');
-        }
-        try{await persistSettings();}catch{settings.promptConfig.mode='external';notices.warning('提示词迁移保存失败，已保留外部模式，请重新保存设置。','提示词');}
-    }else{
-        try{
-            const next=migrateTreeSettings(settings.promptConfig);
-            if(next!==settings.promptConfig)await savePromptConfig(next);
-        }catch{notices.warning('提示词结构迁移或保存失败，已保留原配置，可重试保存。','提示词');}
-    }
-    if(settings.promptConfig?.tagMode==='binding')await characterBindings.load().catch(()=>{});
-    refreshPrompt();
-    const reloadBindingContext=async()=>{characterBindings.invalidate();promptInjection.clear();if(settings.promptConfig?.tagMode==='binding'){try{await characterBindings.load();}catch(error){notices.error(redactErrorText(error.message),'角色绑定');return;}}refreshPrompt();};
+    let promptConfigValid=false;
+    try{
+        let next=settings.promptConfig;
+        if(!next){const name=[settings.world,...bundledWorldTargets(wi.world_names,settings.world)].find(n=>n&&wi.world_names.includes(n));const book=name?await wi.loadWorldInfo(name):null;if(name&&!book)throw Error('无法读取旧世界书');next=book&&!newInstallation?migratePromptSettings(book):defaultPromptSettings();}
+        const candidate=migrateTreeSettings(next);
+        if(candidate!==settings.promptConfig)await savePromptConfig(candidate,{inject:false});promptConfigValid=true;
+    }catch(error){errorPopup(error.stage?error:promptConfigError('upgrade',error));}
+    const reloadBindingContext=async()=>{characterBindings.invalidate();try{await promptInjection.reload();}catch(error){if(characterBindings.state()==='error')errorPopup(promptConfigError('binding-prepare',error));}};
+    promptStarted=true;
+    if(promptConfigValid)await reloadBindingContext();else promptInjection.clear();
     bindingHost.subscribe(async change=>{
         if(['CHAT_CHANGED','CHAT_LOADED','PERSONA_CHANGED'].includes(change.name))bindingCapture=null;
         const current=characterBindings.identity();

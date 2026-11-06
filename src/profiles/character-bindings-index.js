@@ -1,11 +1,7 @@
 export const searchText=value=>String(value||'').normalize('NFKC').trim().toLowerCase();
-export function ownerSummary(target,archive){return {ownerId:archive.owner.ownerId,type:target.type,locator:target.locator,name:target.name,title:target.title||'',description:(target.description||'').slice(0,512),revision:archive.revision,count:archive.bindings.length,bindings:archive.bindings.map(b=>({name:b.name,aliases:[...b.aliases],archived:b.archived})),updated:Date.now()};}
-export function searchOwners(owners,summaries,query,{includeArchived=false}={}){
+export function searchOwners(owners,query){
     const terms=searchText(query).split(/\s+/).filter(Boolean);
-    return owners.flatMap(owner=>{const summary=summaries.find(s=>s.type===owner.type&&s.locator===owner.locator),bindings=(summary?.bindings||[]).filter(b=>includeArchived||!b.archived),fields=[owner.name,owner.title,owner.description,...bindings.flatMap(b=>[b.name,...b.aliases])].map(searchText);
-        if(!terms.every(term=>fields.some(field=>field.includes(term))))return [];
-        const hit=terms.length?bindings.find(b=>terms.some(t=>[b.name,...b.aliases].some(v=>searchText(v).includes(t)))):null;
-        return [{...owner,ownerId:summary?.ownerId,count:summary?.count,matchedBinding:hit?.name}];});
+    return owners.filter(owner=>{const fields=[owner.name,owner.title,owner.type==='user'?owner.description:''].map(searchText);return terms.every(t=>fields.some(v=>v.includes(t)));});
 }
 export function createBindingLRU({maxEntries=8,maxBytes=8*1024*1024}={}){
     const values=new Map();let bytes=0;

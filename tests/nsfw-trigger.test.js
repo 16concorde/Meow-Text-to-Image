@@ -1,8 +1,9 @@
+import {defaultLegacyPromptSettings} from './support/legacy-prompt-settings.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {defaultNsfwKeywords,validateNsfwKeywords,matchNsfwKeywords,getNsfwActivationText} from '../src/prompts/nsfw-trigger.js';
-import {defaultPromptSettings,defaultLegacyPromptSettings} from '../src/prompts/prompt-settings.js';
+import {defaultPromptSettings} from '../src/prompts/prompt-settings.js';
 import {migrateTreeSettings,withNsfwKeywords,withTreeEnabled,withTreeText} from '../src/prompts/tree-settings.js';
 import {treeById} from '../src/prompts/tree-defaults.js';
 import {composePrompt} from '../src/prompts/prompt-composer.js';
@@ -39,23 +40,23 @@ test('one runtime gate opens rules, selected orientation and check together with
 test('revision 1/2/3 migration is idempotent and preserves existing trigger lists and backups',()=>{
  const c=defaultPromptSettings();assert.equal(c.treeRevision,4);assert.deepEqual(c.nsfwTrigger.keywords,[...defaultNsfwKeywords]);
  for(const treeRevision of [undefined,1,2]){
-  const old={...c,treeRevision,nsfwTrigger:{keywords:[]},legacyBackup:{fixture:'keep'},treeBackup:{fixture:'keep'}};const before=structuredClone(old),next=migrateTreeSettings(old);assert.deepEqual(old,before);assert.deepEqual(next.nsfwTrigger.keywords,[]);assert.deepEqual(next.legacyBackup,old.legacyBackup);assert.deepEqual(next.treeBackup,old.treeBackup);assert.equal(migrateTreeSettings(next),next);
+  const old={...c,treeRevision,nsfwTrigger:{keywords:[]},legacyBackup:{fixture:'keep'},treeBackup:{fixture:'keep'}};const before=structuredClone(old),next=migrateTreeSettings(old);assert.deepEqual(old,before);assert.deepEqual(next.nsfwTrigger.keywords,[]);assert.equal(next.legacyBackup,undefined);assert.equal(next.treeBackup,undefined);assert.equal(migrateTreeSettings(next),next);
   const missing={...old};delete missing.nsfwTrigger;assert.deepEqual(migrateTreeSettings(missing).nsfwTrigger.keywords,[...defaultNsfwKeywords]);
  }
  const bad={...c,nsfwTrigger:{keywords:null}},before=structuredClone(bad);assert.throws(()=>migrateTreeSettings(bad));assert.deepEqual(bad,before);const repaired=withNsfwKeywords(bad,[...defaultNsfwKeywords]);assert.deepEqual(repaired.nsfwTriggerBackup,bad.nsfwTrigger);
- const legacy={...defaultLegacyPromptSettings(),overrides:{main:'legacy custom'}};assert.equal(migrateTreeSettings(legacy),legacy);
+ const legacy={...defaultLegacyPromptSettings(),overrides:{main:'legacy custom'}};assert.throws(()=>migrateTreeSettings(legacy),/无法无损/);
 });
-test('event boundary captures new input before prompt construction, freezes streams and clears chats',()=>{
+test('event boundary captures new input before prompt construction, freezes streams and clears chats',async()=>{
  const handlers=new Map(),source={on:(name,fn)=>{const a=handlers.get(name)||[];a.push(fn);handlers.set(name,a);}},names=['CHAT_CHANGED','CHAT_LOADED','MESSAGE_SENT','USER_MESSAGE_RENDERED','MESSAGE_DELETED','MESSAGE_EDITED','MESSAGE_UPDATED','MESSAGE_SWIPED','GENERATION_AFTER_COMMANDS','GENERATION_ENDED','GENERATION_STOPPED'];
- const eventTypes=Object.fromEntries(names.map(n=>[n,n])),emit=(name,...args)=>{for(const f of handlers.get(name)||[])f(...args);};let chat=[{is_user:true,mes:'safe'}],calls=[],scans=0;
+ const eventTypes=Object.fromEntries(names.map(n=>[n,n])),emit=async(name,...args)=>{for(const f of handlers.get(name)||[])await f(...args);};let chat=[{is_user:true,mes:'safe'}],calls=[],scans=0;
  const settings={enabled:true,promptConfig:withTreeEnabled(defaultPromptSettings(),'nsfw',true)},injection=createPromptInjection({settings,context:()=>({chat,setExtensionPrompt:(...args)=>calls.push(args)}),onError:()=>assert.fail('unexpected injection error'),match:(text,keywords)=>{scans++;return matchNsfwKeywords(text,keywords);}});
  bindPromptInjection({source,eventTypes,injection});const active=()=>calls.at(-1)[1].includes(treeById['nsfw.rules'].slots.body);
- emit('GENERATION_AFTER_COMMANDS','normal');assert.equal(active(),false);chat.push({is_user:true,mes:'NSFW'});emit('MESSAGE_SENT',1);assert.equal(active(),true);const count=scans;emit('USER_MESSAGE_RENDERED',1);assert.equal(scans,count);
- chat.push({mes:'safe streamed reply'});emit('MESSAGE_UPDATED',2);injection.update();assert.equal(active(),true);chat.at(-1).mes='more stream';assert.equal(scans,count);
- emit('GENERATION_ENDED');chat=[{is_user:true,mes:'safe'},{mes:'safe'}];emit('GENERATION_AFTER_COMMANDS','normal');assert.equal(active(),false);
- chat=[{is_user:true,mes:'safe'},{mes:'NSFW old reply'}];emit('GENERATION_AFTER_COMMANDS','regenerate');assert.equal(active(),false);chat.pop();emit('MESSAGE_DELETED',1);assert.equal(active(),false);
- chat=[{is_user:true,mes:'safe'},{mes:'NSFW old swipe'}];emit('GENERATION_AFTER_COMMANDS','swipe');assert.equal(active(),false);emit('GENERATION_AFTER_COMMANDS','continue');assert.equal(active(),true);
- chat=[{mes:'safe in B'}];emit('CHAT_CHANGED');assert.equal(active(),false);chat=[{mes:'NSFW in A'}];emit('CHAT_LOADED');assert.equal(active(),true);
+ await emit('GENERATION_AFTER_COMMANDS','normal');assert.equal(active(),false);chat.push({is_user:true,mes:'NSFW'});await emit('MESSAGE_SENT',1);assert.equal(active(),true);const count=scans;await emit('USER_MESSAGE_RENDERED',1);assert.equal(scans,count);
+ chat.push({mes:'safe streamed reply'});await emit('MESSAGE_UPDATED',2);injection.update();assert.equal(active(),true);chat.at(-1).mes='more stream';assert.equal(scans,count);
+ await emit('GENERATION_ENDED');chat=[{is_user:true,mes:'safe'},{mes:'safe'}];await emit('GENERATION_AFTER_COMMANDS','normal');assert.equal(active(),false);
+ chat=[{is_user:true,mes:'safe'},{mes:'NSFW old reply'}];await emit('GENERATION_AFTER_COMMANDS','regenerate');assert.equal(active(),false);chat.pop();await emit('MESSAGE_DELETED',1);assert.equal(active(),false);
+ chat=[{is_user:true,mes:'safe'},{mes:'NSFW old swipe'}];await emit('GENERATION_AFTER_COMMANDS','swipe');assert.equal(active(),false);await emit('GENERATION_AFTER_COMMANDS','continue');assert.equal(active(),true);
+ chat=[{mes:'safe in B'}];await emit('CHAT_CHANGED');await injection.reload();assert.equal(active(),false);chat=[{mes:'NSFW in A'}];await emit('CHAT_LOADED');await injection.reload();assert.equal(active(),true);
  settings.promptConfig=withNsfwKeywords(settings.promptConfig,[]);injection.update();assert.equal(active(),false);settings.promptConfig=withNsfwKeywords(settings.promptConfig,['NSFW']);injection.update();assert.equal(active(),true);
  settings.promptConfig={...settings.promptConfig,mode:'external'};injection.update();assert.equal(calls.at(-1)[1],'');settings.promptConfig={...settings.promptConfig,mode:'builtin'};settings.enabled=false;injection.update();assert.equal(calls.at(-1)[1],'');
  assert.ok(calls.every(c=>c[0]===PROMPT_ID&&JSON.stringify(c.slice(2))==='[1,0,false,0]'));

@@ -21,7 +21,7 @@ export function showPagePopup(content,{parent,onOpen,onClosing,fillParent=false,
     // Keep Enter in a nested chooser/viewer from accepting the host settings dialog.
     if(nested)card.addEventListener('keydown',event=>event.stopPropagation());
     if(fillParent&&nested)layer.dataset.fillPanel='true';
-    const blocked=nested?[...mount.children]:[...doc.body.children],inert=blocked.map(element=>[element,element.inert]);
+    const blocked=nested?[...mount.children]:[...doc.body.children],inert=blocked.filter(element=>element.id!=='toast-container').map(element=>[element,element.inert]);
     for(const [element] of inert)element.inert=true;
     const visibility=fillParent&&nested?blocked.map(element=>[element,element.style.visibility]):[];
     for(const [element] of visibility)element.style.visibility='hidden';
@@ -42,6 +42,7 @@ export function showPagePopup(content,{parent,onOpen,onClosing,fillParent=false,
             activeViewers.delete(scope);
             viewport?.removeEventListener('resize',fit);viewport?.removeEventListener('scroll',fit);win.removeEventListener('resize',fit);
             if(win.__TAURITAVERN_HANDLE_BACK__===back)win.__TAURITAVERN_HANDLE_BACK__=previousBack;
+            const toasts=card.querySelector('#toast-container');if(toasts)doc.body.append(toasts);
             layer.remove();for(const [element,value] of visibility)element.style.visibility=value;for(const [element,value] of inert)element.inert=value;if(!nested)doc.body.style.overflow=overflow;
             if(previous?.isConnected&&!previous.closest('[inert]'))previous.focus({preventScroll:true});
             if(error)reject(error);else resolve(1);

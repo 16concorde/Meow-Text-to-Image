@@ -1,4 +1,5 @@
-import {defaultLegacyPromptSettings,defaultPromptSettings} from '../../src/prompts/prompt-settings.js';
+import {defaultLegacyPromptSettings} from './legacy-prompt-settings.js';
+import {defaultPromptSettings} from '../../src/prompts/prompt-settings.js';
 
 // Synthetic historical configurations only; no saved host/user settings are read.
 export function configurePromptTreeFixture({settings,preview}) {

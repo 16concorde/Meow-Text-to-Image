@@ -1,5 +1,4 @@
 import {createNsfwKeywordsView} from './nsfw-keywords-view.js';
-import {promptTemplates} from '../prompts/prompt-templates.js';
 import {treeById, treeRoots} from '../prompts/tree-defaults.js';
 import {effectiveEnabled, savedEnabled, withTreeEnabled} from '../prompts/tree-settings.js';
 import {openPromptEditor} from './prompt-editor.js';
@@ -7,14 +6,14 @@ const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefi
 
 export function createPromptModulesView({settings,save,onError,parent,expanded=new Set()}){
     const root=node('section',undefined,'miao-section miao-prompt-tree');
-    root.append(node('h3',settings.promptConfig.version===2?'提示词条目':'旧版兼容编辑'));
-    if(settings.promptConfig.version!==2){paintLegacy();return root;}
+    root.append(node('h3','提示词条目'));
+    if(settings.promptConfig.version!==2||settings.promptConfig.treeRevision!==4){root.append(node('p','旧配置尚未完成安全转换；原配置保留，请从宿主设置备份核对后升级。'));return root;}
     const states=[];
     let busy=false;
     async function commit(next){
         if(busy)return;
-        busy=true;for(const {toggle,select} of states){if(toggle)toggle.disabled=true;if(select)select.disabled=true;}
-        try{const pending=save(next);paint();await pending;}catch(error){onError(error);}finally{busy=false;paint();}
+        busy=true;root.setAttribute('aria-busy','true');for(const {toggle,select} of states){if(toggle)toggle.disabled=true;if(select)select.disabled=true;}
+        try{await save(next);}catch(error){onError(error);}finally{busy=false;root.removeAttribute('aria-busy');paint();}
     }
     function paint(){
         for(const {item,branch,status,toggle,select,radio,expand,children,keywords} of states){
@@ -60,7 +59,7 @@ export function createPromptModulesView({settings,save,onError,parent,expanded=n
         }
         if(Object.keys(item.slots).length){
             const edit=node('button',undefined,'miao-button miao-tree-edit');edit.type='button';edit.setAttribute('aria-label','编辑'+item.label);edit.title='编辑'+item.label;const icon=node('i',undefined,'fa-solid fa-pencil');icon.setAttribute('aria-hidden','true');edit.append(icon);
-            edit.onclick=()=>openPromptEditor({parent:parent(),settings,key:id,label:item.label,save,onSaved:paint});actions.prepend(edit);
+            edit.onclick=()=>openPromptEditor({parent:parent(),settings,key:id,label:item.label,save,onError,onSaved:paint});actions.prepend(edit);
         }
         if(item.kind==='choice-group'){
             const choice=node('label','发送的性向','miao-field');select=node('select');select.setAttribute('aria-label','发送的性向');
@@ -71,19 +70,4 @@ export function createPromptModulesView({settings,save,onError,parent,expanded=n
     }
     treeRoots.forEach(id=>append(id,root));paint();return root;
 
-    function paintLegacy(){
-        // The original whole-module editor is intentionally kept for unmappable v1 overrides.
-        for(const [key,label] of Object.entries(promptTemplates).map(([key,t])=>[key,t.comment])){
-            const row=node('div',undefined,'miao-prompt-module'),status=node('span',Object.hasOwn(settings.promptConfig.overrides||{},key)?'已自定义':'默认','miao-muted');row.append(node('strong',label),status);
-            if(Object.hasOwn(settings.promptConfig.modules,key)){
-                const toggle=node('input');toggle.type='checkbox';toggle.checked=settings.promptConfig.modules[key];toggle.setAttribute('aria-label','启用'+label);
-                toggle.onchange=async()=>{toggle.disabled=true;try{await save({...settings.promptConfig,modules:{...settings.promptConfig.modules,[key]:toggle.checked}});}catch(error){toggle.checked=settings.promptConfig.modules[key];onError(error);}finally{toggle.disabled=false;}};row.append(toggle);
-            }
-            const edit=node('button',undefined,'miao-button miao-tree-edit');edit.type='button';edit.setAttribute('aria-label','编辑'+label);edit.title='编辑'+label;edit.append(node('i',undefined,'fa-solid fa-pencil'));
-            edit.onclick=()=>openPromptEditor({parent:parent(),settings,key,label,save,onSaved:()=>{status.textContent=Object.hasOwn(settings.promptConfig.overrides||{},key)?'已自定义':'默认';}});row.append(edit);root.append(row);
-        }
-        const wrap=node('label','性向模块','miao-field'),select=node('select');select.setAttribute('aria-label','性向模块');
-        for(const [value,text] of [['','不指定'],['bg','BG'],['bl','BL'],['gl','GL'],['intersex','双性']]){const option=node('option',text);option.value=value;select.append(option);}select.value=settings.promptConfig.orientation;
-        select.onchange=async()=>{select.disabled=true;try{await save({...settings.promptConfig,orientation:select.value});}catch(error){select.value=settings.promptConfig.orientation;onError(error);}finally{select.disabled=false;}};wrap.append(select);root.append(wrap);
-    }
 }

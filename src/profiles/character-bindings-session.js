@@ -5,7 +5,7 @@ import {randomId,sha256Sync} from '../platform/browser-crypto.js';
 export const SNAPSHOTS_KEY='miaoCharacterSnapshots';
 export const snapshotSlot=(swipe,block)=>JSON.stringify([swipe,block.bodyIndex,sha256Sync(block.prompt)]);
 export function createCharacterBindingsSession({context,persona,storage,mode,models,management,chatSettings}){
-    let loaded=null,loading=null,epoch=0;
+    let loaded=null,loading=null,epoch=0,failure=null;
     const pending=new WeakMap(),unconfirmed=new WeakMap();
     const identity=()=>bindingIdentity(context(),persona());
     const key=()=>contextIdentity(identity())+(management?management.host.scope():'');
@@ -16,24 +16,24 @@ export function createCharacterBindingsSession({context,persona,storage,mode,mod
         const captured=identity(),capturedKey=contextIdentity(captured)+(management?management.host.scope():'');
         if(loaded?.key===capturedKey){try{return current();}catch{loaded=null;}}
         if(loading?.key===capturedKey)return loading.promise;
-        loaded=null;const token=++epoch;
+        loaded=null;failure=null;const token=++epoch;
         const promise=Promise.all(captured.owners.map(owner=>management?management.open({type:owner.type,locator:owner.stableKey,name:owner.label}):storage.load(owner))).then(entries=>{
             assertKey(capturedKey);if(epoch!==token)throw Error('角色绑定加载已过期');
             loaded={key:capturedKey,identity:captured,entries};return current();
-        }).finally(()=>{if(loading?.promise===promise)loading=null;});
+        }).catch(error=>{if(epoch===token)failure=error;throw error;}).finally(()=>{if(loading?.promise===promise)loading=null;});
         loading={key:capturedKey,promise};return promise;
     }
     function bindingMode(){return mode()?.version===2&&mode().mode==='builtin'&&mode().tagMode==='binding'&&mode().enabledById?.tags!==false;}
     const api={
-        identity,current,rows,load,management,chatSettings,isLoading:()=>!!loading,
-        invalidate(){epoch++;loaded=null;loading=null;},
+        identity,current,rows,load,management,chatSettings,state:()=>loading?'loading':loaded&&loaded.key===key()?'ready':failure?'error':'idle',isLoading:()=>!!loading,
+        invalidate(){epoch++;loaded=null;loading=null;failure=null;},
         roster(){if(!bindingMode())return '';return bindingRoster(rows());},
         async prepare({verify=true}={}){
             if(!bindingMode())return;
             await load();
             chatSettings?.assertCurrentConfirmed();
             if(verify&&management)await management.verifySources(current().entries);
-            if(current().entries.some(e=>e.legacyChanged))throw Error('旧版角色资料已改变，请在数据管理中比较并确认后再使用绑定生成');
+            if(current().entries.some(e=>e.legacyChanged))throw Error('旧版角色资料已改变，绑定生成已停止，请从完整备份核对 v1 与 v2 资料');
             if(current().identity.unsupported)throw Error('角色绑定第一阶段不支持群聊');
             if(models().some(m=>!/^nai-diffusion-[45](?:-|$)/.test(m)))throw Error('绑定模式不支持 V3，请更换全部候选及彩蛋配置或切回完整 Tag 模式');
         },

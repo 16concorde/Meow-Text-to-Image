@@ -1,18 +1,15 @@
-import {promptTemplates} from '../prompts/prompt-templates.js';
-import {promptText,withPromptOverride} from '../prompts/prompt-overrides.js';
 import {treeById} from '../prompts/tree-defaults.js';
 import {treeText,withTreeText} from '../prompts/tree-settings.js';
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
-export function openPromptEditor({parent,settings,key,label,save,onSaved=()=>{}}){
+export function openPromptEditor({parent,settings,key,label,save,onError=()=>{},onSaved=()=>{}}){
     if(parent.querySelector('.miao-prompt-editor'))return;
-    const tree=settings.promptConfig.version===2;
-    const defaults=tree?treeById[key].slots:{body:promptTemplates[key].content};
-    const initial=Object.fromEntries(Object.keys(defaults).map(slot=>[slot,tree?treeText(settings.promptConfig,key,slot):promptText(settings.promptConfig,key)]));
+    const defaults=treeById[key].slots;
+    const initial=Object.fromEntries(Object.keys(defaults).map(slot=>[slot,treeText(settings.promptConfig,key,slot)]));
     const layer=node('div',undefined,'miao-prompt-editor'),card=node('section',undefined,'miao-prompt-editor-card');
     card.setAttribute('role','dialog');card.setAttribute('aria-modal','true');card.setAttribute('aria-label','编辑 · '+label);
     const heading=node('h3','编辑 · '+label),fields=node('div',undefined,'miao-prompt-editor-fields'),status=node('p','','miao-muted'),actions=node('div',undefined,'miao-actions'),inputs={};
     for(const slot of Object.keys(initial)){
-        const title=tree?({prefix:'开头',body:'正文',suffix:'结尾'}[slot]):'模块原文';
+        const title=({prefix:'开头',body:'正文',suffix:'结尾'}[slot]);
         const wrap=node('label',undefined,'miao-prompt-editor-field'),input=node('textarea');input.value=initial[slot];input.setAttribute('aria-label',title);input.spellcheck=false;input.wrap='soft';wrap.append(node('span',title),input);fields.append(wrap);inputs[slot]=input;
     }
     const first=Object.values(inputs)[0],previous=document.activeElement,blocked=[...parent.children].map(n=>[n,n.inert]);for(const [n] of blocked)n.inert=true;
@@ -28,11 +25,11 @@ export function openPromptEditor({parent,settings,key,label,save,onSaved=()=>{}}
         if(busy)return;busy=true;submit.disabled=restore.disabled=dismiss.disabled=true;for(const input of Object.values(inputs))input.readOnly=true;
         try{
             const values=Object.fromEntries(Object.entries(inputs).map(([slot,input])=>[slot,input.value]));
-            await save(tree?withTreeText(settings.promptConfig,key,values):withPromptOverride(settings.promptConfig,key,values.body));onSaved();finish();
-        }catch(error){status.textContent=error.message;}
+            await save(withTreeText(settings.promptConfig,key,values));onSaved();finish();
+        }catch(error){status.textContent=error.message;onError(error);}
         finally{busy=false;submit.disabled=restore.disabled=dismiss.disabled=false;for(const input of Object.values(inputs))input.readOnly=false;}
     });
-    card.append(heading,node('p',tree?(key==='task'?'任务说明中的（对象）、（人格）、（数量）张由基础配置替换，彩蛋开启时自动补充标记。':'保存后更新 D0；恢复默认仅修改当前草稿。酒馆宏按原文保留，插件不解析变量。'):'旧版兼容编辑；保存后继续使用原模块组装。','miao-muted'),fields,status,actions);layer.append(card);parent.append(layer);
+    card.append(heading,node('p',(key==='task'?'任务说明中的（对象）、（人格）、（数量）张由基础配置替换，彩蛋开启时自动补充标记。':'保存后更新 D0；恢复默认仅修改当前草稿。酒馆宏按原文保留，插件不解析变量。'),'miao-muted'),fields,status,actions);layer.append(card);parent.append(layer);
     const viewport=window.visualViewport,fit=()=>{layer.style.setProperty('--miao-editor-height',Math.max(180,(viewport?.height||window.innerHeight)-Math.max(0,parent.getBoundingClientRect().top-(viewport?.offsetTop||0))-16)+'px');};fit();viewport?.addEventListener('resize',fit);viewport?.addEventListener('scroll',fit);
     const observer=new MutationObserver(()=>{if(!layer.isConnected)finish();});observer.observe(document.body,{childList:true,subtree:true});parent.addEventListener('close',finish);
     const oldBack=window.__TAURITAVERN_HANDLE_BACK__,back=()=>{discard();return true;};window.__TAURITAVERN_HANDLE_BACK__=back;

@@ -9,23 +9,23 @@ export function defaultTreeSettings(mode = 'builtin') {
         textOverridesById:{}, orientation:''};
 }
 
-export function hasLegacyCustomizations(config) {
-    return config?.version === 1 && Object.entries(config.overrides || {}).some(([key, text]) => text !== promptTemplates[key]?.content);
+function hasLegacyCustomizations(config) {
+    return config?.version === 1 && (config.fixed?.cot_xml!==undefined&&config.fixed.cot_xml!=='star_cot'||Object.entries(config.overrides || {}).some(([key, text]) => text !== promptTemplates[key]?.content));
 }
 
-// A custom v1 document cannot be split losslessly. Keep its usable composer and editor
-// until the user explicitly chooses the tree; retain the entire original configuration.
-export function migrateTreeSettings(config, {adoptTree = false} = {}) {
+// One-time upgrades only; unsplittable historical documents remain untouched and blocked.
+export function migrateTreeSettings(config) {
     if (!config) return defaultTreeSettings();
     if (config.version === 2) {
-        if (config.treeRevision === 4) { validateTreeSettings(config); return config; }
+        if (config.treeRevision === 4) { validateTreeSettings(config); const keys=['legacyBackup','treeBackup','treeUpgradeBackup'];if(!keys.some(k=>Object.hasOwn(config,k)))return config;const next={...config};for(const key of keys)delete next[key];return next; }
         if (config.treeRevision === 3) {
             const next={...config,treeRevision:4,tagMode:config.tagMode??'full',textOverridesById:structuredClone(config.textOverridesById||{})};
             if(next.textOverridesById.tags?.body!==undefined){
+                if(next.textOverridesById['tags.full']?.body!==undefined&&next.textOverridesById['tags.full'].body!==next.textOverridesById.tags.body)throw Error('旧 Tag 与新版完整 Tag 自定义正文冲突，原配置保留；请核对宿主设置备份');
                 next.textOverridesById['tags.full']={...next.textOverridesById['tags.full'],body:next.textOverridesById.tags.body};
                 delete next.textOverridesById.tags;
             }
-            validateTreeSettings(next);return next;
+            return migrateTreeSettings(next);
         }
         if (config.treeRevision === 2) {
             const next = {...config, treeRevision:3, nsfwTrigger:config.nsfwTrigger === undefined ? {keywords:[...defaultNsfwKeywords]} : structuredClone(config.nsfwTrigger)};
@@ -33,11 +33,9 @@ export function migrateTreeSettings(config, {adoptTree = false} = {}) {
         }
         if (config.treeRevision !== undefined && config.treeRevision !== 1) throw Error('不支持的提示词树版本，原配置已保留');
         const next = {...config, treeRevision:2, enabledById:{...config.enabledById}, textOverridesById:structuredClone(config.textOverridesById || {})};
-        const retired={revision:1,retiredText:{}};
-        if(config.textOverridesById?.egg?.suffix!==undefined)retired.retiredText.eggSuffix=config.textOverridesById.egg.suffix;
-        if(config.textOverridesById?.tags?.body!==undefined&&config.textOverridesById?.['tags.rules']?.body!==undefined&&config.textOverridesById.tags.body!==config.textOverridesById['tags.rules'].body)retired.retiredText.tagsBody=config.textOverridesById.tags.body;
-        if (Object.hasOwn(config, 'treeBackup')) next.treeUpgradeBackup = retired;
-        else next.treeBackup = retired;
+        if(config.textOverridesById?.tags?.body!==undefined&&config.textOverridesById?.['tags.rules']?.body!==undefined&&config.textOverridesById.tags.body!==config.textOverridesById['tags.rules'].body)throw Error('旧 Tag 两份自定义正文冲突，原配置保留；请从宿主设置备份核对正文后升级');
+        const suffix=next.textOverridesById.egg?.suffix;
+        if(suffix!==undefined&&suffix!=='完成彩蛋任务。')next.textOverridesById.egg={...next.textOverridesById.egg,body:(next.textOverridesById.egg.body??treeById.egg.slots.body)+'\n'+suffix};
         if (typeof next.enabledById['tags.rules'] === 'boolean') next.enabledById.tags = savedEnabled(config, 'tags') && next.enabledById['tags.rules'];
         delete next.enabledById['tags.rules']; delete next.enabledById['selfcheck.nsfw'];
         if (next.textOverridesById['tags.rules']?.body !== undefined) next.textOverridesById.tags = {...next.textOverridesById.tags, body:next.textOverridesById['tags.rules'].body};
@@ -46,9 +44,8 @@ export function migrateTreeSettings(config, {adoptTree = false} = {}) {
         return migrateTreeSettings(next);
     }
     if (config.version !== 1) throw Error('不支持的提示词配置版本，原配置已保留');
-    if (hasLegacyCustomizations(config) && !adoptTree) return config;
+    if (hasLegacyCustomizations(config)) throw Error('旧版自定义全文无法无损拆分，原配置未覆盖；请从宿主设置备份提取正文后转换到新版条目');
     const next = defaultTreeSettings(config.mode);
-    next.legacyBackup = {version:1, config:structuredClone(config)};
     for (const [key, name] of Object.entries(paramNames)) if (typeof config.fixed?.[name] === 'string') next.params[key] = config.fixed[name];
     const modules = {selfCheck:'selfcheck', easterEgg:'egg', subtitle:'output.subtitle', easterEggDescription:'egg.description', nsfw:'nsfw'};
     for (const [key, id] of Object.entries(modules)) if (typeof config.modules?.[key] === 'boolean') next.enabledById[id] = config.modules[key];
@@ -60,7 +57,7 @@ export function migrateTreeSettings(config, {adoptTree = false} = {}) {
 
 export function validateTreeSettings(config) {
     if (!['full','binding'].includes(config.tagMode)) throw Error('Tag 模式无效');
-    if (config.version !== 2 || !['builtin','external'].includes(config.mode) || !orientations.includes(config.orientation)) throw Error('提示词配置无效');
+    if (config.treeRevision!==4 || config.version !== 2 || !['builtin','external'].includes(config.mode) || !orientations.includes(config.orientation)) throw Error('提示词配置无效');
     if (!config.nsfwTrigger || typeof config.nsfwTrigger !== 'object') throw Error('NSFW 触发配置无效，原配置已保留');
     validateNsfwKeywords(config.nsfwTrigger.keywords);
     for (const key of Object.keys(paramNames)) {
@@ -115,7 +112,6 @@ export function promptWarnings(config, startTag, endTag) {
     if (config.version !== 2) return [];
     const warnings = [];
     if (Object.values(config.params).some(value => /\{\{/.test(value)) || Object.values(config.textOverridesById || {}).some(slots => Object.values(slots).some(value => /\{\{/.test(value)))) warnings.push('内容含酒馆宏：插件按原文保留，不解析变量；最终行为取决于宿主与预设。');
-    if (config.legacyBackup?.config?.fixed?.cot_xml) warnings.push('旧 cot_xml 已保存在兼容备份；新结构不注入该变量，依赖它的外部预设兼容性尚未验证。');
     if (startTag !== 'image###' || endTag !== '###') warnings.push('当前捕捉标签与内置 image### / ### 格式不一致，可能无法识别图片；请核对捕捉标签和输出正文。');
     if (config.textOverridesById?.['output.format']?.body !== undefined) warnings.push('图片标签结构已自定义，请核对实际输出与捕捉标签；插件不会自动改写正文。');
     return warnings;

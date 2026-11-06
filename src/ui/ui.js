@@ -1,6 +1,6 @@
 import {createCharacterBindingsView} from './character-bindings-view.js';
 import {createPromptModulesView} from './prompt-modules-view.js';
-import {hasLegacyCustomizations,migrateTreeSettings,promptWarnings} from '../prompts/tree-settings.js';
+import {migrateTreeSettings,promptWarnings} from '../prompts/tree-settings.js';
 import {reconcileProfileSelection} from '../profiles/profile-selection.js';
 import {createResourceMacrosView} from './resource-macros-view.js';
 import {validateQueueURL} from '../queue/cloud-queue.js';
@@ -395,6 +395,7 @@ export function createSettingsPanel({characterBindings,settings,save,persistSett
             refresh();
         } else if(activeTab==='resources') {
             const resources=section(body,'提示词来源');
+            if(!settings.promptConfig){resources.append(node('p','提示词配置尚未保存，请重新加载后重试；原设置保留。'));}else{
             const withPromptLock=async run=>{
                 const controls=[...body.querySelectorAll('input,select,button')].map(control=>[control,control.disabled]);
                 for(const [control] of controls)control.disabled=true;
@@ -410,15 +411,9 @@ export function createSettingsPanel({characterBindings,settings,save,persistSett
             let macrosView;
             const warnings=node('div');
             const paintWarnings=()=>{warnings.replaceChildren();for(const text of promptWarnings(settings.promptConfig,start.value,end.value))warnings.append(node('p',text,'miao-notice'));};
-            if(settings.promptConfig.mode==='builtin'){
+            if(settings.promptConfig.mode==='builtin'&&settings.promptConfig.version===2&&settings.promptConfig.treeRevision===4){
                 resources.append(node('p','内置模式注入 D0；请检查配套世界书，避免重复指令。','miao-muted'));
                 if(settings.promptConfig.migration?.modified?.length)resources.append(node('p','旧世界书正文修改不会自动继承至内置模板。','miao-notice'));
-                if(settings.promptConfig.version===1){
-                    resources.append(node('p',(hasLegacyCustomizations(settings.promptConfig)?'检测到旧版自定义正文，已保留兼容组装与编辑。':'旧版配置尚未完成迁移，可重新保存为新树。')+'选择新树会使用定稿正文，并保留完整旧配置备份。','miao-notice'));
-                    action(resources,'使用新树结构（保留旧版备份）',async()=>{await commitPage();await savePanelPrompt(migrateTreeSettings(settings.promptConfig,{adoptTree:true}));render();});
-                }else if(settings.promptConfig.legacyBackup?.config){
-                    action(resources,'恢复旧版配置备份',async()=>{await commitPage();if(!window.confirm('恢复迁移前配置？当前树形设置将被替换。'))return;await savePanelPrompt(structuredClone(settings.promptConfig.legacyBackup.config));render();});
-                }
                 const saveTree=async next=>{await savePanelPrompt(next);paintWarnings();};
                 macrosView=createResourceMacrosView({read:readResourceMacros,save:async(snapshot,values)=>{const result=await withPromptLock(()=>saveResourceMacros(snapshot,values));paintWarnings();return result;},onError});body.append(macrosView.element);
                 body.append(createPromptModulesView({settings,save:saveTree,onError,parent:()=>root.closest('dialog')||root,expanded:memory.promptExpanded}));
@@ -432,8 +427,7 @@ export function createSettingsPanel({characterBindings,settings,save,persistSett
             const updateSample=()=>{sample.textContent=start.value+'\nprompt\n'+end.value;if(settings.promptConfig.mode==='builtin')paintWarnings();};start.addEventListener('input',updateSample);end.addEventListener('input',updateSample);updateSample();capture.append(sample);
             if(settings.promptConfig.mode==='builtin')capture.append(warnings);
             commitPage=async()=>{await macrosView?.commit();if(start.value!==settings.startTag||end.value!==settings.endTag)await saveCapture(start.value,end.value);};
-
-
+            }
         }
         if(activeTab==='images') {
             const storage=section(body,'存储');

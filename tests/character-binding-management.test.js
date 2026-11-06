@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {managementFixture} from './support/character-binding-management-fixture.js';
 import {emptyBindingArchive,editBinding,normalizeOwnerKey,legacyOwnerKey,bindingSwitchKey,BINDING_NAMESPACE} from '../src/profiles/character-bindings.js';
-import {searchOwners,ownerSummary,createBindingLRU} from '../src/profiles/character-bindings-index.js';
+import {searchOwners,createBindingLRU} from '../src/profiles/character-bindings-index.js';
 import {readBindingChatObjects} from '../src/chat/character-binding-chat-settings.js';
 const fields={name:'角色A',aliases:['Hero Alias'],positive:'boy, silver hair',negative:'black hair'};
 async function saved(f,index=0){const target=(await f.management.list('card'))[index],empty=await f.management.open(target),entry=await f.management.save(empty,editBinding(empty.archive,fields));return {target,entry};}
@@ -14,8 +14,8 @@ test('selectors project native objects without writes; exact locators and same n
 });
 test('first save confirms card UUID, v2 archive, index and summary; same-name cards are isolated',async()=>{
  const f=managementFixture(),a=await saved(f,0),b=await saved(f,1);assert.notEqual(a.entry.archive.owner.ownerId,b.entry.archive.owner.ownerId);assert.equal(a.entry.archive.bindings[0].shortId,'C01');assert.equal(b.entry.archive.bindings[0].shortId,'C01');
- assert.equal(f.cards.get(a.target.locator).data.extensions.meow_t2i.ownerId,a.entry.archive.owner.ownerId);assert.ok(!JSON.stringify(await f.management.summaries()).includes('silver hair'));
- const summary=await f.management.summaries(),matches=searchOwners(await f.management.list('card'),summary,'角色A');assert.equal(matches.length,2);assert.equal(matches[0].matchedBinding,'角色A');
+ assert.equal(f.cards.get(a.target.locator).data.extensions.meow_t2i.ownerId,a.entry.archive.owner.ownerId);assert.ok(![...f.files.keys()].some(k=>k.includes('summary-v2')));
+
 });
 test('native rename and overwrite preserve owner/binding IDs; duplicated UUID is quarantined',async()=>{
  const f=managementFixture(),{target,entry}=await saved(f),id=entry.archive.owner.ownerId,bid=entry.archive.bindings[0].uuid;
@@ -24,7 +24,7 @@ test('native rename and overwrite preserve owner/binding IDs; duplicated UUID is
  f.context.characters.push({...structuredClone(f.context.characters[0]),avatar:'copy.png'});f.cards.set('copy.png',{...structuredClone(f.cards.get(newLocator)),avatar:'copy.png'});
  await assert.rejects(f.management.open((await f.management.list('card')).at(-1)),/复制/);await f.host.emit({name:'CHARACTER_DUPLICATED',type:'card',oldLocator:newLocator,locator:'copy.png',duplicate:true});
  const copy=await f.management.open((await f.management.list('card')).at(-1));assert.notEqual(copy.archive.owner.ownerId,id);assert.equal(copy.archive.bindings.length,0);
- const copied=await f.management.copyFrom(copy.target,id);assert.equal(copied.archive.bindings[0].shortId,'C01');assert.notEqual(copied.archive.bindings[0].uuid,bid);
+ assert.equal((await f.storage.load(entry.archive.owner)).archive.bindings[0].uuid,bid);
 });
 test('migration preserves v1 binding identities, aliases, sequence and immutable old files',async()=>{
  const f=managementFixture(),target=(await f.management.list('card'))[0];let legacy=editBinding(emptyBindingArchive({type:'card',stableKey:target.locator}),fields);legacy=editBinding(legacy,{...fields,name:'Second'});const old=await f.storage.save(legacy,null),file=await f.storage.filename(legacy.owner),before=f.files.get('/user/files/'+file);
@@ -36,9 +36,8 @@ test('legacy normalization collisions and swallowed card saves block migration w
  const g=managementFixture();g.swallowCard=true;await assert.rejects(saved(g),/身份尚未保存/);const pending=(await g.management.records()).find(r=>r.state==='pending');assert.ok(pending);g.swallowCard=false;
  const retry=await g.management.open((await g.management.list('card'))[0],{create:true,fresh:true});assert.equal(retry.archive.owner.ownerId,pending.ownerId);
 });
-test('upload interruption is confirmed by read-back; summary failure is reported separately',async()=>{
- const f=managementFixture();f.uploadThenThrow=true;const {entry,target}=await saved(f);assert.equal(entry.archive.bindings.length,1);f.uploadThenThrow=false;f.failSummary=true;
- const next=await f.management.save(entry,editBinding(entry.archive,{name:'Changed'},entry.archive.bindings[0].uuid));assert.equal(next.summaryPending,true);f.failSummary=false;assert.equal((await f.management.open(target,{fresh:true})).archive.bindings[0].name,'Changed');
+test('upload interruption is confirmed by read-back without search summary writes',async()=>{
+ const f=managementFixture();f.uploadThenThrow=true;const {entry}=await saved(f);assert.equal(entry.archive.bindings.length,1);assert.ok(![...f.files.keys()].some(k=>k.includes('summary-v2')));
 });
 test('current chat saves detect swallowed writes and preserve unknown metadata',async()=>{
  const f=managementFixture(),{entry}=await saved(f),ref=f.chatSettings.current();f.context.chatMetadata.unknown={preserved:true};await f.context.saveChat();const state=await f.chatSettings.read(ref),row=f.chatSettings.rows(state)[0],key=bindingSwitchKey(row.owner,row);
@@ -55,11 +54,9 @@ test('bounded chat reader cancels after header and refuses malformed or oversize
  const header=await readBindingChatObjects(new Response(stream));assert.equal(header.chat_metadata.integrity,'x');assert.equal(cancelled,true);assert.ok(pulls<4);
  await assert.rejects(readBindingChatObjects(Response.json({})),/格式异常/);await assert.rejects(readBindingChatObjects(Response.json([{chat_metadata:{large:'x'.repeat(1024)}}]),{maxObjectBytes:100}),/过大/);
 });
-test('search handles Unicode, aliases, title, archived filter and independent same-name owners',()=>{
- const target={type:'card',locator:'x.png',name:'角色a&角色b'},archive=editBinding(emptyBindingArchive({type:'card',stableKey:'x.png'}),fields),summary=ownerSummary(target,{...archive,owner:{type:'card',ownerId:'00000000-0000-4000-8000-000000000001'}});
- assert.equal(searchOwners([target],[summary],'角色b').length,1);assert.equal(searchOwners([target],[summary],'HERO ALIAS 角色A').length,1);
- summary.bindings[0].archived=true;assert.equal(searchOwners([target],[summary],'HERO ALIAS').length,0);assert.equal(searchOwners([target],[summary],'HERO ALIAS',{includeArchived:true}).length,1);
- assert.equal(searchOwners([{type:'user',locator:'u',name:'Traveler',title:'Remark'}],[],' TRAV remark ').length,1);
+test('native search handles Unicode, name fragments and user remarks only',async()=>{
+ const target={type:'card',locator:'x.png',name:'角色a&角色b'};assert.equal(searchOwners([target],'角色b').length,1);assert.equal(searchOwners([target],'HERO ALIAS').length,0);assert.equal(searchOwners([{type:'user',name:'Traveler',title:'Remark'}],' TRAV remark ').length,1);
+ for(const count of [300,1000]){const f=managementFixture({cards:count}),objects=await f.management.list('card');assert.equal(searchOwners(objects,'same').length,2);await f.management.list('card');assert.equal(f.requests.length,0);}
 });
 test('LRU enforces byte and entry budgets independently; account changes clear old sensitive cache',async()=>{
  const lru=createBindingLRU({maxEntries:2,maxBytes:100});lru.set('a','x'.repeat(50));lru.set('b','y'.repeat(50));assert.ok(lru.stats().bytes<=100);assert.equal(lru.get('a'),undefined);
@@ -83,17 +80,6 @@ test('message snapshot references require disk confirmation even when saveChat r
  const message={mes:'image###scene | C01, smiling###'};f.context.chat.push(message);const block=parseBodyBlocks(message.mes,'image###([\\s\\S]*?)###')[0];f.swallowChat=true;
  await assert.rejects(session.accept(message,block),/读回未确认/);await assert.rejects(session.resolve(message,block),/读回未确认/);f.swallowChat=false;await f.context.saveChat();assert.equal((await session.resolve(message,block))[0].positive,fields.positive);
 });
-test('explicit full search indexing probes legacy filenames with bounded requests and batches manifests',async()=>{
- const f=managementFixture({cards:1000,users:300});let max=0;const result=await f.management.buildIndex({onProgress:p=>{max=Math.max(max,p.done);}});assert.equal(result.complete,true);assert.equal(max,1300);
- assert.equal(f.requests.filter(r=>r.url==='/api/characters/get').length,0);assert.equal(f.requests.filter(r=>r.url==='/api/chats/get').length,0);
- const writes=f.requests.filter(r=>r.url==='/api/files/upload'&&r.body.name==='miao-character-owner-index-v2.json');assert.ok(writes.length<=41);
- const before=f.requests.length;await f.management.buildIndex();assert.ok(f.requests.length-before<5);
-});
-test('packages validate checksums, preserve scope declarations and preview conflicts without writes',async()=>{
- const f=managementFixture(),{entry}=await saved(f),bundle=await f.management.exportPackage(),before=f.requests.filter(r=>r.method==='POST'&&r.url==='/api/files/upload').length;
- assert.deepEqual(bundle.includes,{archives:true,snapshots:false,chatOverrides:false,credentials:false});const preview=await f.management.previewPackage(bundle);assert.equal(preview[0].conflict,true);assert.equal(preview[0].ownerId,entry.archive.owner.ownerId);assert.equal(f.requests.filter(r=>r.method==='POST'&&r.url==='/api/files/upload').length,before);
- bundle.files[0].archive.bindings[0].positive='tampered';await assert.rejects(f.management.previewPackage(bundle),/校验和/);
-});
 test('two clients passing old hashes retain independent immutable recovery candidates without claiming CAS',async()=>{
  const f=managementFixture(),{entry}=await saved(f),{createCharacterBindingStorage}=await import('../src/platform/character-bindings-storage.js');const other=createCharacterBindingStorage({getHeaders:f.context.getRequestHeaders,fetchImpl:f.fetch,scope:f.host.scope,locks:null}),name=await f.storage.filename(entry.archive.owner);
  let arrivals=0,release;const barrier=new Promise(r=>release=r);f.onUpload=async body=>{if(body.name===name){arrivals++;if(arrivals===2)release();await barrier;}};
@@ -107,13 +93,13 @@ test('offline rename recovers through embedded identity while deleted locator re
  const newer=managementFixture();newer.files=new Map(f.files);newer.cards=new Map(f.cards);newer.cards.delete(target.locator);newer.cards.set('offline-renamed.png',{...card,avatar:'offline-renamed.png'});newer.context.characters[0]={...card,avatar:'offline-renamed.png'};
  const recovered=await newer.management.open((await newer.management.list('card'))[0],{fresh:true});assert.equal(recovered.archive.owner.ownerId,entry.archive.owner.ownerId);assert.equal(recovered.archive.bindings[0].uuid,entry.archive.bindings[0].uuid);
  await newer.host.emit({name:'CHARACTER_DELETED',type:'card',locator:'offline-renamed.png'});newer.context.characters[0]={avatar:'offline-renamed.png',name:'Replacement',data:{extensions:{}}};newer.cards.set('offline-renamed.png',structuredClone(newer.context.characters[0]));
- await assert.rejects(newer.management.open((await newer.management.list('card'))[0],{fresh:true}),/已删除对象/);assert.ok((await newer.management.exportPackage()).files.some(item=>item.ownerId===entry.archive.owner.ownerId));
+ await assert.rejects(newer.management.open((await newer.management.list('card'))[0],{fresh:true}),/已删除对象/);assert.equal((await newer.storage.load(entry.archive.owner)).archive.bindings[0].uuid,entry.archive.bindings[0].uuid);
 });
 test('old-version writes after migration require an explicit compare/merge decision',async()=>{
  const f=managementFixture(),target=(await f.management.list('card'))[0],old=await f.storage.save(editBinding(emptyBindingArchive({type:'card',stableKey:target.locator}),fields),null),entry=await f.management.open(target);
  await f.storage.save(editBinding(old.archive,{positive:'boy, OLD VERSION EDIT'},old.archive.bindings[0].uuid),old.hash);
  f.management.invalidate(target);const current=await f.management.open(target,{fresh:true});assert.equal(current.legacyChanged,true);await assert.rejects(f.management.verifySources([current]),/旧版 v1/);await assert.rejects(f.management.save(current,editBinding(current.archive,{name:'Attempt'},current.archive.bindings[0].uuid)),/旧 v1/);
- await f.management.resolveLegacy(target,{merge:true});const merged=await f.management.open(target,{fresh:true});assert.equal(merged.archive.owner.ownerId,entry.archive.owner.ownerId);assert.equal(merged.archive.bindings[0].uuid,old.archive.bindings[0].uuid);assert.equal(merged.archive.bindings[0].positive,'boy, OLD VERSION EDIT');assert.equal(merged.legacyChanged,false);
+ assert.equal((await f.storage.load(entry.archive.owner)).archive.bindings[0].positive,fields.positive);
 });
 test('complete user-file and chat transfer keeps identities, overrides and historical snapshots in another instance',async()=>{
  const source=managementFixture(),{entry,target}=await saved(source),row=entry.archive.bindings[0],ref=source.chatSettings.current(),state=await source.chatSettings.read(ref);await source.chatSettings.save(state,{[bindingSwitchKey(entry.archive.owner,row)]:false});
@@ -154,7 +140,7 @@ test('TT snapshot confirmation uses bounded history instead of materializing the
 });
 test('near-4MiB archive and 100-binding boundary stay valid with bounded cache and tiny card identity',async()=>{
  const f=managementFixture(),target=(await f.management.list('card'))[0],entry=await f.management.open(target),archive={...entry.archive,nextSequence:101,bindings:Array.from({length:100},(_,i)=>({uuid:`00000000-0000-4000-8000-${String(i+1).padStart(12,'0')}`,shortId:'C'+String(i+1).padStart(2,'0'),name:'Fixture '+i,aliases:[],positive:(i<30?'黑':'x').repeat(16000),negative:'y'.repeat(16000),defaultEnabled:true,archived:i===99,revision:1}))};
- const bytes=new TextEncoder().encode(JSON.stringify(archive)).length;assert.ok(bytes>4_000_000&&bytes<4*1024*1024);const saved=await f.management.save(entry,archive);assert.equal(saved.archive.bindings.length,100);assert.ok(f.management.cache.stats().bytes<=8*1024*1024);assert.ok(JSON.stringify(f.cards.get(target.locator).data.extensions).length<200);assert.ok(!(await f.management.summaries()).some(s=>JSON.stringify(s).includes('yyy')));
+ const bytes=new TextEncoder().encode(JSON.stringify(archive)).length;assert.ok(bytes>4_000_000&&bytes<4*1024*1024);const saved=await f.management.save(entry,archive);assert.equal(saved.archive.bindings.length,100);assert.ok(f.management.cache.stats().bytes<=8*1024*1024);assert.ok(JSON.stringify(f.cards.get(target.locator).data.extensions).length<200);assert.ok(![...f.files.keys()].some(k=>k.includes('summary-v2')));
 });
 
 test('old empty and saved owner drafts cannot publish into a changed account',async()=>{

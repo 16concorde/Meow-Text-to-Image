@@ -19,7 +19,7 @@ export function createCharacterBindingHost({context,persona,account=()=>'',tt=()
             return [...keys].map(locator=>projectBindingOwner('user',{avatar:locator,name:names[locator]||'未命名用户设定',title:descriptions[locator]?.title,description:descriptions[locator]?.description,source:Object.hasOwn(names,locator)?'saved':'avatar-only'}));
         },
         async readCard(locator){const card=await (await post('characters/get',{avatar_url:normalizeOwnerKey(locator)})).json();if(card?.avatar!==locator)throw Error('角色卡读取身份不一致');return card;},
-        async readOwnerId(target){if(target.type!=='card')return null;const card=await api.readCard(target.locator),id=card.data?.extensions?.[OWNER_FIELD]?.ownerId;if(id!=null&&!validBindingUuid(id))throw Error('角色卡所属 UUID 损坏，请修复归属');return id||null;},
+        async readOwnerId(target){if(target.type!=='card')return null;const card=await api.readCard(target.locator),id=card.data?.extensions?.[OWNER_FIELD]?.ownerId;if(id!=null&&!validBindingUuid(id))throw Error('角色卡所属 UUID 损坏，绑定读取已停止，请从完整宿主备份核对身份归属');return id||null;},
         async writeOwnerId(target,ownerId){
             if(!validBindingUuid(ownerId))throw Error('所属 UUID 无效');
             const captured=scope();let failure;try{const index=context().characters?.findIndex(c=>c.avatar===target.locator);if(typeof writeExtensionField==='function'&&index>=0)await writeExtensionField(index,OWNER_FIELD,{identityVersion:1,ownerId});else await post('characters/merge-attributes',{avatar:target.locator,data:{extensions:{[OWNER_FIELD]:{identityVersion:1,ownerId}}}});}catch(error){failure=error;}

@@ -1,0 +1,210 @@
+[
+  {
+    "commit": "37a81ac",
+    "config": {
+      "version": 1,
+      "mode": "builtin",
+      "fixed": {
+        "人格": "ELLA",
+        "cot_xml": "star_cot",
+        "张数": "2~3",
+        "彩蛋标签": "/meow_FM",
+        "对象": "User"
+      },
+      "modules": {
+        "selfCheck": true,
+        "easterEgg": true,
+        "subtitle": true,
+        "easterEggDescription": true,
+        "nsfw": false
+      },
+      "orientation": ""
+    }
+  },
+  {
+    "commit": "e1adc7c",
+    "config": {
+      "version": 2,
+      "mode": "builtin",
+      "params": {
+        "persona": "ELLA",
+        "target": "User",
+        "count": "2~3",
+        "eggMarker": "/meow_FM"
+      },
+      "enabledById": {
+        "task.steps": true,
+        "task.fan": true,
+        "composition": true,
+        "tags": true,
+        "tags.rules": true,
+        "egg": true,
+        "egg.description": true,
+        "nsfw": false,
+        "nsfw.rules": true,
+        "selfcheck": true,
+        "selfcheck.item1": true,
+        "selfcheck.item2": true,
+        "selfcheck.item3": true,
+        "selfcheck.item4": true,
+        "selfcheck.item5": true,
+        "selfcheck.item6": true,
+        "selfcheck.item7": true,
+        "selfcheck.item8": true,
+        "selfcheck.item9": true,
+        "selfcheck.item10": true,
+        "selfcheck.nsfw": true,
+        "selfcheck.total": true,
+        "output.subtitle": false
+      },
+      "textOverridesById": {},
+      "orientation": ""
+    }
+  },
+  {
+    "commit": "93f0b65",
+    "config": {
+      "version": 2,
+      "treeRevision": 2,
+      "mode": "builtin",
+      "params": {
+        "persona": "ELLA",
+        "target": "User",
+        "count": "2~3",
+        "eggMarker": "/meow_FM"
+      },
+      "enabledById": {
+        "task.steps": true,
+        "task.fan": true,
+        "composition": true,
+        "egg": true,
+        "egg.description": true,
+        "tags": true,
+        "nsfw": false,
+        "nsfw.rules": true,
+        "selfcheck": true,
+        "selfcheck.item1": true,
+        "selfcheck.item2": true,
+        "selfcheck.item3": true,
+        "selfcheck.item4": true,
+        "selfcheck.item5": true,
+        "selfcheck.item6": true,
+        "selfcheck.item7": true,
+        "selfcheck.item8": true,
+        "selfcheck.item9": true,
+        "selfcheck.item10": true,
+        "selfcheck.total": true,
+        "output.subtitle": false
+      },
+      "textOverridesById": {},
+      "orientation": ""
+    }
+  },
+  {
+    "commit": "ad68a34",
+    "config": {
+      "version": 2,
+      "treeRevision": 3,
+      "mode": "builtin",
+      "nsfwTrigger": {
+        "keywords": [
+          "NSFW",
+          "色情",
+          "色色",
+          "肉棒",
+          "小逼",
+          "牛子",
+          "操",
+          "做爱",
+          "上床",
+          "喘息"
+        ]
+      },
+      "params": {
+        "persona": "ELLA",
+        "target": "User",
+        "count": "2~3",
+        "eggMarker": "/meow_FM"
+      },
+      "enabledById": {
+        "task.steps": true,
+        "task.fan": true,
+        "composition": true,
+        "egg": true,
+        "egg.description": true,
+        "tags": true,
+        "nsfw": false,
+        "nsfw.rules": true,
+        "selfcheck": true,
+        "selfcheck.item1": true,
+        "selfcheck.item2": true,
+        "selfcheck.item3": true,
+        "selfcheck.item4": true,
+        "selfcheck.item5": true,
+        "selfcheck.item6": true,
+        "selfcheck.item7": true,
+        "selfcheck.item8": true,
+        "selfcheck.item9": true,
+        "selfcheck.item10": true,
+        "selfcheck.total": true,
+        "output.subtitle": false
+      },
+      "textOverridesById": {},
+      "orientation": ""
+    }
+  },
+  {
+    "commit": "9feef04",
+    "config": {
+      "version": 2,
+      "treeRevision": 4,
+      "tagMode": "full",
+      "mode": "builtin",
+      "nsfwTrigger": {
+        "keywords": [
+          "NSFW",
+          "色情",
+          "色色",
+          "肉棒",
+          "小逼",
+          "牛子",
+          "操",
+          "做爱",
+          "上床",
+          "喘息"
+        ]
+      },
+      "params": {
+        "persona": "ELLA",
+        "target": "User",
+        "count": "2~3",
+        "eggMarker": "/meow_FM"
+      },
+      "enabledById": {
+        "task.steps": true,
+        "task.fan": true,
+        "composition": true,
+        "egg": true,
+        "egg.description": true,
+        "tags": true,
+        "nsfw": false,
+        "nsfw.rules": true,
+        "selfcheck": true,
+        "selfcheck.item1": true,
+        "selfcheck.item2": true,
+        "selfcheck.item3": true,
+        "selfcheck.item4": true,
+        "selfcheck.item5": true,
+        "selfcheck.item6": true,
+        "selfcheck.item7": true,
+        "selfcheck.item8": true,
+        "selfcheck.item9": true,
+        "selfcheck.item10": true,
+        "selfcheck.total": true,
+        "output.subtitle": false
+      },
+      "textOverridesById": {},
+      "orientation": ""
+    }
+  }
+]

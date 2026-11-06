@@ -10,7 +10,7 @@
     top: var(--miao-page-top,0px);
     width: var(--miao-page-width,100vw);
     height: var(--miao-page-height,100dvh);
-    z-index: 2147483647;
+    z-index: 11000;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1410,7 +1410,7 @@
     background: #0009 !important;
     position: fixed !important;
     inset: auto !important;
-    z-index: 2147483647 !important;
+    z-index: 11000 !important;
     display: flex !important;
     align-items: center;
     justify-content: center;
@@ -2286,8 +2286,6 @@ img[data-miao-export-state=loading] {visibility: hidden;}
 .miao-batch-export .miao-button {min-height: 44px;}
 .miao-image-viewer:has(>img[data-miao-export-state=loading])::before {content: '正在准备 JPG…'; position: absolute; inset: 0; display: grid; place-items: center; color: var(--mi-muted); font-size: 14px; pointer-events: none;}
 
-.miao-error-view {text-align: start; overflow-wrap: anywhere;}
-.miao-error-view pre {white-space: pre-wrap; max-height: 45dvh; overflow: auto;}
 
 /* Fixed prompt tree: visibility state is separate from saved content. */
 .miao-prompt-module{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--mi-line);flex-wrap:wrap;min-width:0}
@@ -2361,3 +2359,5 @@ img[data-miao-export-state=loading] {visibility: hidden;}
 
 .miao-character-bindings input[type="search"] { display: block; width: 100%; min-height: 44px; padding: 10px 12px; margin: 8px 0; border: 1px solid var(--mi-line); border-radius: 8px; color: inherit; background: var(--mi-surface); font: inherit; font-size: 16px; }
 .miao-owner-selector > label { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+
+.miao-toast .toast-message { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow-y: auto; }

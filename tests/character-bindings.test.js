@@ -36,9 +36,9 @@ test('02 choices stay mutually exclusive through parent switches and all old rev
  c=withTreeEnabled(c,'tags',false);assert.ok(!composeTreePrompt(c).includes(bound));c=withTreeEnabled(c,'tags',true);assert.equal(c.tagMode,'binding');assert.ok(composeTreePrompt(c).includes(bound));
  for(const revision of [1,2,3]){const old={...defaultTreeSettings(),treeRevision:revision,textOverridesById:{tags:{body:'OLD CUSTOM'},composition:{body:'OTHER'}},nsfwTrigger:{keywords:['KEEP']}};const next=migrateTreeSettings(old);assert.equal(next.treeRevision,4);assert.equal(next.tagMode,'full');assert.equal(next.textOverridesById['tags.full'].body,'OLD CUSTOM');assert.equal(next.textOverridesById.composition.body,'OTHER');assert.deepEqual(next.nsfwTrigger.keywords,['KEEP']);assert.equal(next.textOverridesById.tags,undefined);}
 });
-test('revision 1 retains both conflicting legacy tag texts without copying the whole settings document',()=>{
+test('revision 1 blocks conflicting legacy tag texts without dropping either source',()=>{
  const old={...defaultTreeSettings(),treeRevision:1,textOverridesById:{tags:{body:'PARENT CUSTOM'},'tags.rules':{body:'RULES CUSTOM'}}};
- const next=migrateTreeSettings(old);assert.equal(next.textOverridesById['tags.full'].body,'RULES CUSTOM');assert.equal(next.treeBackup.retiredText.tagsBody,'PARENT CUSTOM');assert.equal(next.treeBackup.config,undefined);
+ const original=structuredClone(old);assert.throws(()=>migrateTreeSettings(old),/冲突/);assert.deepEqual(old,original);
 });
 test('D0 clears stale rosters on load failure and awaits preparation before sending',async()=>{
  let roster='C01 = Fixture',ready=false,release;const injected=[],errors=[];
