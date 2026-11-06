@@ -2,7 +2,7 @@ import {bindButtonPress} from './button-press.js';
 const activeViewers=new WeakMap();
 
 // TT content viewers use a page layer, avoiding the host's native modal lifecycle.
-export function showPagePopup(content,{parent,onOpen,fillParent=false,closeLabel='完成'}={}){
+export function showPagePopup(content,{parent,onOpen,onClosing,fillParent=false,closeLabel='完成'}={}){
     const doc=content.ownerDocument;
     // A second viewer replaces the first before capturing inert/scroll state.
     // Otherwise out-of-order closes can leave the entire page inert on TT.
@@ -31,10 +31,11 @@ export function showPagePopup(content,{parent,onOpen,fillParent=false,closeLabel
     const fit=()=>{if(nested)return;for(const [name,value] of Object.entries({left:viewport?.offsetLeft||0,top:viewport?.offsetTop||0,width:viewport?.width||win.innerWidth,height:viewport?.height||win.innerHeight}))layer.style.setProperty('--miao-page-'+name,value+'px');};
     fit();viewport?.addEventListener('resize',fit);viewport?.addEventListener('scroll',fit);win.addEventListener('resize',fit);
     return new Promise((resolve,reject)=>{
-        let done=false;
+        let done=false,closing=false;
+        const requestClose=()=>{if(done||closing)return;if(typeof onClosing!=='function'){finish();return;}closing=true;return Promise.resolve(onClosing()).then(allowed=>{if(allowed!==false)finish();}).finally(()=>{closing=false;});};
         // Hardware back closes this viewer first; leave the host bridge intact afterward.
         const previousBack=win.__TAURITAVERN_HANDLE_BACK__;
-        const back=()=>{if(!done&&layer.isConnected){if(card.querySelector('.miao-confirmation-layer'))card.dispatchEvent(new win.Event('cancel',{cancelable:true}));else finish();return true;}return previousBack?.();};
+        const back=()=>{if(!done&&layer.isConnected){if(card.querySelector('.miao-confirmation-layer'))card.dispatchEvent(new win.Event('cancel',{cancelable:true}));else if(!settings||!content.querySelector('.miao-character-bindings')?.back?.())requestClose();return true;}return previousBack?.();};
         const finish=error=>{
             if(done)return;done=true;observer.disconnect();doc.removeEventListener('keydown',key,true);parent?.removeEventListener('close',parentClosed);
             card.dispatchEvent(new win.Event('close'));
@@ -50,7 +51,7 @@ export function showPagePopup(content,{parent,onOpen,fillParent=false,closeLabel
             if(card.dataset.panelPage)return;
             if(activeViewers.has(card))return;
             if(card.querySelector('.miao-confirmation-layer'))return;
-            if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();finish();}
+            if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();if(!settings||!content.querySelector('.miao-character-bindings')?.back?.())void requestClose();}
             else if(event.key==='Tab'){
                 const items=[...card.querySelectorAll('button:not(:disabled),a[href],input:not(:disabled),textarea:not(:disabled),[tabindex="0"]')].filter(element=>!element.closest('[hidden]')&&element.getClientRects().length);
                 const first=items[0],last=items.at(-1);
@@ -60,7 +61,7 @@ export function showPagePopup(content,{parent,onOpen,fillParent=false,closeLabel
         const observer=new win.MutationObserver(()=>{if(!layer.isConnected)finish();});observer.observe(doc.body,{childList:true,subtree:true});
         activeViewers.set(scope,()=>finish());
         win.__TAURITAVERN_HANDLE_BACK__=back;
-        doc.addEventListener('keydown',key,true);parent?.addEventListener('close',parentClosed);bindButtonPress(close,()=>finish());
-        try{onOpen?.({dlg:card,completeAffirmative:()=>finish()});(settings?content.querySelector('.miao-drawer-close'):content.querySelector('[data-initial-focus]')||close)?.focus({preventScroll:true});}catch(error){finish(error);}
+        doc.addEventListener('keydown',key,true);parent?.addEventListener('close',parentClosed);bindButtonPress(close,()=>requestClose());
+        try{onOpen?.({dlg:card,completeAffirmative:()=>requestClose()});(settings?content.querySelector('.miao-drawer-close'):content.querySelector('[data-initial-focus]')||close)?.focus({preventScroll:true});}catch(error){finish(error);}
     });
 }

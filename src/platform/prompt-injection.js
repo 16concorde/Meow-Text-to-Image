@@ -6,6 +6,7 @@ export function createPromptInjection({context,settings,bindings,onError,match=m
     let frame=null,cache=null;
     const capture=type=>getNsfwActivationText(context().chat,type);
     const api={
+        clear(){frame=null;cache=null;context().setExtensionPrompt?.(PROMPT_ID,'',1,0,false,0);return '';},
         update(){try{
             const host=context();
             let text='';

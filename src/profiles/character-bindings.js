@@ -2,11 +2,14 @@ import {randomId} from '../platform/browser-crypto.js';
 
 export const BINDING_LIMITS=Object.freeze({count:100,text:16000,name:160,aliases:20,bytes:4*1024*1024});
 export const SWITCH_KEY='miaoCharacterSwitchOverrides';
+export const BINDING_NAMESPACE='meow_t2i_bindings';
 const uuid=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
+export const validBindingUuid=value=>typeof value==='string'&&uuid.test(value);
 export function normalizeOwnerKey(value){
     if(typeof value!=='string'||!value.trim()||value.length>512||/[\x00-\x1f/\\]/.test(value))throw Error('所有者头像标识无效');
-    return value.normalize('NFC').trim();
+    return value;
 }
+export const legacyOwnerKey=value=>normalizeOwnerKey(value).normalize('NFC').trim();
 export function bindingIdentity(context,personaAvatar){
     const chat=context.getCurrentChatId?.()??context.chatId;
     if(context.groupId)return {chat:null,owners:[],unsupported:true};
@@ -16,16 +19,25 @@ export function bindingIdentity(context,personaAvatar){
     }
     return {chat:chat==null?null:String(chat),owners,unsupported:false};
 }
-export const ownerIdentity=owner=>JSON.stringify([owner.type,owner.stableKey]);
+export const ownerIdentity=owner=>JSON.stringify([owner.type,owner.ownerId??owner.stableKey]);
 export const contextIdentity=identity=>JSON.stringify([identity.chat,identity.unsupported,identity.owners.map(ownerIdentity)]);
-export function emptyBindingArchive(owner){return {schemaVersion:1,owner:{type:owner.type,stableKey:owner.stableKey},revision:0,nextSequence:1,bindings:[]};}
+export function emptyBindingArchive(owner){return {schemaVersion:owner.ownerId?2:1,owner:owner.ownerId?{type:owner.type,ownerId:owner.ownerId}:{type:owner.type,stableKey:owner.stableKey},revision:0,nextSequence:1,bindings:[]};}
+export function assertSafeBindingData(value,depth=0){
+    if(depth>32)throw Error('资料嵌套过深');
+    if(value&&typeof value==='object')for(const key of Object.keys(value)){if(['__proto__','prototype','constructor'].includes(key))throw Error('资料包含危险字段');assertSafeBindingData(value[key],depth+1);}
+    return value;
+}
 export function validateBindingArchive(value,expectedOwner){
-    if(!value||value.schemaVersion!==1||!['card','user'].includes(value.owner?.type))throw Error('角色档案格式无效');
-    normalizeOwnerKey(value.owner.stableKey);
+    assertSafeBindingData(value);
+    const archiveKeys=new Set(['schemaVersion','owner','revision','nextSequence','bindings','migration','legacyKeys','nativeLocator','_recovery']);
+    if(value&&Object.keys(value).some(k=>!archiveKeys.has(k)))throw Error('角色档案包含不支持的字段');
+    if(!value||![1,2].includes(value.schemaVersion)||!['card','user'].includes(value.owner?.type))throw Error('角色档案格式无效');
+    if(value.schemaVersion===2){if(!validBindingUuid(value.owner.ownerId))throw Error('角色所属 UUID 无效');}else normalizeOwnerKey(value.owner.stableKey);
     if(expectedOwner&&ownerIdentity(value.owner)!==ownerIdentity(expectedOwner))throw Error('角色档案归属不匹配');
     if(!Number.isSafeInteger(value.revision)||value.revision<0||!Number.isSafeInteger(value.nextSequence)||value.nextSequence<1||!Array.isArray(value.bindings)||value.bindings.length>BINDING_LIMITS.count)throw Error('角色档案版本或数量无效');
     const ids=new Set(),uuids=new Set(),prefix=value.owner.type==='card'?'C':'U';
     for(const b of value.bindings){
+        if(!b||Object.keys(b).some(k=>!['uuid','shortId','name','aliases','positive','negative','defaultEnabled','archived','revision'].includes(k)))throw Error('角色记录包含不支持的字段');
         const sequence=Number(b.shortId?.slice(1));
         if(!uuid.test(b.uuid)||uuids.has(b.uuid)||!new RegExp('^'+prefix+'[0-9]{2,}$').test(b.shortId)||!Number.isSafeInteger(sequence)||sequence<1||sequence>=value.nextSequence||b.shortId!==prefix+String(sequence).padStart(2,'0')||ids.has(b.shortId))throw Error('角色 UUID、短 ID 或分配序列无效');
         uuids.add(b.uuid);ids.add(b.shortId);
@@ -36,19 +48,19 @@ export function validateBindingArchive(value,expectedOwner){
     if(new TextEncoder().encode(JSON.stringify(value)).length>BINDING_LIMITS.bytes)throw Error('角色档案超过 4 MiB 上限');
     return value;
 }
-export function editBinding(archive,changes,id){
+export function editBinding(archive,changes,id,{newUuid}={}){
     const next=structuredClone(archive),existing=id&&next.bindings.find(b=>b.uuid===id);
     if(id&&!existing)throw Error('角色记录已不存在');
-    const b=existing||{uuid:randomId(),shortId:(next.owner.type==='card'?'C':'U')+String(next.nextSequence++).padStart(2,'0'),revision:0,defaultEnabled:true,archived:false};
+    const b=existing||{uuid:newUuid??randomId(),shortId:(next.owner.type==='card'?'C':'U')+String(next.nextSequence++).padStart(2,'0'),revision:0,defaultEnabled:true,archived:false};
     for(const field of ['name','positive','negative','defaultEnabled','archived'])if(Object.hasOwn(changes,field))b[field]=changes[field];
     if(changes.aliases)b.aliases=[...new Set(changes.aliases.map(a=>a.trim()).filter(Boolean))];
     b.revision++;if(!existing)next.bindings.push(b);
     return validateBindingArchive(next);
 }
-export function bindingSwitchKey(owner,b){return JSON.stringify([owner.type,owner.stableKey,b.uuid]);}
+export function bindingSwitchKey(owner,b){return owner.ownerId?JSON.stringify([owner.ownerId,b.uuid]):JSON.stringify([owner.type,owner.stableKey,b.uuid]);}
 export function activeBindings(archives,metadata={}){
-    const overrides=metadata[SWITCH_KEY]?.schemaVersion===1?metadata[SWITCH_KEY].values||{}:{};
-    return archives.flatMap(a=>a.bindings.map(b=>{const key=bindingSwitchKey(a.owner,b),override=overrides[key];return {...b,owner:a.owner,enabled:typeof override==='boolean'?override:b.defaultEnabled,source:typeof override==='boolean'?'chat':'global'};})).filter(b=>!b.archived);
+    const modern=metadata?.extensions?.[BINDING_NAMESPACE],overrides=modern?.schemaVersion===2?modern.values||{}:metadata?.[SWITCH_KEY]?.schemaVersion===1?metadata[SWITCH_KEY].values||{}:{};
+    return archives.flatMap(a=>a.bindings.map(b=>{let override=overrides[bindingSwitchKey(a.owner,b)];if(modern?.schemaVersion!==2&&a.owner.ownerId)for(const old of a.legacyKeys||[a.migration?.sourceOwnerKey].filter(Boolean)){const v=overrides[JSON.stringify([a.owner.type,old,b.uuid])];if(typeof v==='boolean'){override=v;break;}}return {...b,owner:a.owner,enabled:typeof override==='boolean'?override:b.defaultEnabled,source:typeof override==='boolean'?'chat':'global'};})).filter(b=>!b.archived);
 }
 export function bindingRoster(bindings){
     const plain=s=>s.replace(/[\r\n\x00-\x1f=<>]/g,' ').trim();

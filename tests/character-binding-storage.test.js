@@ -9,11 +9,11 @@ async function populated(){const f=bindingFixture();await f.session.load();const
 function message(f,prompt='scene | C01, smiling'){const m={mes:'image###'+prompt+'###',swipe_id:0};f.context.chat.push(m);return {m,b:parseBodyBlocks(m.mes,'image###([\\s\\S]*?)###')[0]};}
 test('404 creates only an in-memory template; uploads use hashed user files, never settings',async()=>{
  const f=bindingFixture();await f.session.load();assert.equal(f.files.size,0);assert.equal(f.session.current().entries.length,2);
- const a=f.session.current().entries[0].archive;await f.session.saveArchive(editBinding(a,fields));assert.equal(f.files.size,1);assert.match([...f.files.keys()][0],/^\/user\/files\/miao-character-user-v1-[a-f0-9]{64}\.json$/);
+ const a=f.session.current().entries[0].archive;await f.session.saveArchive(editBinding(a,fields));assert.equal(f.files.size,3);assert.ok([...f.files.keys()].some(k=>k.includes('recovery-v2')));assert.ok([...f.files.keys()].some(k=>k.includes('operation-v2')));assert.match([...f.files.keys()].find(k=>k.includes('miao-character-user-v1-')),/^\/user\/files\/miao-character-user-v1-[a-f0-9]{64}\.json$/);
  assert.ok(!JSON.stringify(f.config).includes(fields.positive));assert.ok(!JSON.stringify(f.context.chatMetadata).includes(fields.positive));
 });
 test('HTTP failures, corrupt JSON, and failed uploads never overwrite old archives',async()=>{
- const f=await populated(),[path]=f.files.keys(),original=f.files.get(path);
+ const f=await populated(),path=[...f.files.keys()].find(k=>k.includes('miao-character-card-v1-')),original=f.files.get(path);
  f.session.invalidate();f.failRead=403;await assert.rejects(f.session.load(),/HTTP 403/);assert.equal(f.files.get(path),original);
  f.failRead=0;f.files.set(path,'bad JSON');await assert.rejects(f.session.load(),/JSON/);f.files.set(path,original);await f.session.load();
  const a=f.session.current().entries.find(e=>e.archive.owner.type==='card').archive;f.failWrite=true;await assert.rejects(f.session.saveArchive(editBinding(a,{name:'Changed'},a.bindings[0].uuid)),/HTTP 500/);assert.equal(f.files.get(path),original);assert.equal(f.session.rows()[0].name,'Fixture');
@@ -21,7 +21,7 @@ test('HTTP failures, corrupt JSON, and failed uploads never overwrite old archiv
 test('save detects another tab hash, serializes writes, and forbids reassigning identities',async()=>{
  const f=await populated(),a=f.session.current().entries.find(e=>e.archive.owner.type==='card').archive;
  const next=editBinding(a,{name:'First'},a.bindings[0].uuid);
- await Promise.all([f.session.saveArchive(next),assert.rejects(f.session.saveArchive(next),/其它窗口/)]);
+ await Promise.all([f.session.saveArchive(next),assert.rejects(f.session.saveArchive(editBinding(a,{name:'Second'},a.bindings[0].uuid)),/其它窗口/)]);
  const bad=structuredClone(f.session.current().entries.find(e=>e.archive.owner.type==='card').archive);bad.bindings=[];await assert.rejects(f.session.saveArchive(bad),/历史角色身份/);
 });
 test('global defaults and chat-only differences are independent and metadata failures roll back',async()=>{

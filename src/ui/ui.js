@@ -26,6 +26,8 @@ export function createSettingsPanel({characterBindings,settings,save,persistSett
     let activeTab=initialTab||(matchMedia('(max-width:680px), (max-height:500px)').matches?'overview':'generation'),fieldId=0,promptTab='positive',selectedVibeId=null,samplePromptDraft=memory.samplePromptDraft,sortingProfiles=false;
     const safe=fn=>async()=>{try{await fn();}catch(e){onError(e);}};
     const updateBox=node('div',undefined,'miao-update-status');updateBox.setAttribute('aria-live','polite');
+    let bindingPage=null;
+    const leaveBindings=async()=>!bindingPage||await bindingPage.guardLeave();
     let paintPreviews=()=>{},renderEpoch=0,batchExport=false;const exportSelection=new Set();
     let batchVibes=false,vibeTransferBusy=false;const vibeSelection=new Set();
     let updateData=null,updateBusy=false,updateError='',updated=false;
@@ -111,6 +113,7 @@ export function createSettingsPanel({characterBindings,settings,save,persistSett
         finally{body.inert=wasInert;for(const [button,disabled] of locked)button.disabled=disabled;root.removeAttribute('aria-busy');}
     }
     function render() {
+        bindingPage?.dispose();bindingPage=null;
         const profileFocus=root.contains(document.activeElement)?document.activeElement.dataset.profileFocus:undefined;
         const previousGallery=root.querySelector('.miao-sample-gallery');if(previousGallery)memory.galleryTop=previousGallery.scrollTop;
         const galleryTop=memory.galleryTop;
@@ -120,16 +123,16 @@ export function createSettingsPanel({characterBindings,settings,save,persistSett
         root.dataset.favoritesEnabled=String(favoritesEnabled(settings));
         let commitPage=async()=>{},afterSave=()=>{};
         const header=node('header',undefined,'miao-header');const brand=node('div',undefined,'miao-brand');
-        const back=node('button','‹','miao-drawer-back');back.type='button';back.setAttribute('aria-label','返回功能列表');back.hidden=activeTab==='overview';back.onclick=()=>{activeTab='overview';render();root.closest('.popup-content')?.scrollTo({top:0});};header.append(back);
+        const back=node('button','‹','miao-drawer-back');back.type='button';back.setAttribute('aria-label','返回功能列表');back.hidden=activeTab==='overview';back.onclick=async()=>{if(bindingPage?.back())return;if(!await leaveBindings())return;activeTab='overview';render();root.closest('.popup-content')?.scrollTo({top:0});};header.append(back);
         if(activeTab==='overview'){const title=node('div');title.append(node('h2','喵喵文生图'));brand.append(title);header.append(brand);}
         header.dataset.compact=String(activeTab!=='overview');
         if(activeTab!=='overview'&&activeTab!=='bindings'){
             const saveButton=action(header,'保存',async()=>{saveButton.textContent='保存中…';try{await commitPage();await persistSettings();afterSave();const current=root.querySelector('.miao-save-button');if(current)current.textContent='已保存';}catch(error){const current=root.querySelector('.miao-save-button');if(current)current.textContent='保存';throw error;}});saveButton.classList.add('miao-save-button');
         }
-        const close=node('button','×','miao-drawer-close');close.type='button';close.setAttribute('aria-label','关闭设置');close.onclick=safe(closeSettings);header.append(close);root.append(header);
+        const close=node('button','×','miao-drawer-close');close.type='button';close.setAttribute('aria-label','关闭设置');close.onclick=safe(async()=>{if(await leaveBindings()){bindingPage?.dispose();bindingPage=null;await closeSettings();}});header.append(close);root.append(header);
         const tabs=node('nav',undefined,'miao-tabs');tabs.setAttribute('aria-label','设置分区');
         for(const [id,label] of [['generation','生成'],['config','配置'],['vibes','Vibe'],['resources','生图指令'],['bindings','角色绑定'],['images','图库'],['favorites','收藏']].filter(([id])=>id!=='favorites'||favoritesEnabled(settings))) {
-            const b=node('button',label);b.type='button';b.dataset.active=String(activeTab===id);b.setAttribute('aria-pressed',String(activeTab===id));b.onclick=()=>{activeTab=id;render();root.closest('.popup-content')?.scrollTo({top:0});};tabs.append(b);
+            const b=node('button',label);b.type='button';b.dataset.active=String(activeTab===id);b.setAttribute('aria-pressed',String(activeTab===id));b.onclick=async()=>{if(!await leaveBindings())return;activeTab=id;render();root.closest('.popup-content')?.scrollTo({top:0});};tabs.append(b);
         }root.append(tabs);
         const body=node('div',undefined,'miao-panel-body');body.dataset.scrollKey='panel-'+activeTab;root.append(body);
         const p=settings.profiles[settings.active];
@@ -150,7 +153,7 @@ export function createSettingsPanel({characterBindings,settings,save,persistSett
                 row.onclick=()=>{activeTab=id;render();root.closest('.popup-content')?.scrollTo({top:0});};overview.append(row);
             }
         } else if(activeTab==='bindings') {
-            body.append(createCharacterBindingsView({session:characterBindings,settings,onError,onSaved:()=>{save();}}));
+            bindingPage=createCharacterBindingsView({session:characterBindings,settings,onError});body.append(bindingPage);
         } else if(activeTab==='generation') {
             const layout=node('div',undefined,'miao-generation-layout'),preferences=node('div',undefined,'miao-generation-column'),account=node('div',undefined,'miao-generation-column');layout.append(preferences,account);body.append(layout);
             const interaction=section(preferences,'操作');
@@ -529,5 +532,6 @@ export function createSettingsPanel({characterBindings,settings,save,persistSett
     root.addEventListener('miao-key-changed',()=>root.onKeyChanged?.());
     root.addEventListener('miao-profile-previews',()=>paintPreviews());
     root.addEventListener('miao-open-section',event=>{const detail=typeof event.detail==='string'?{section:event.detail}:event.detail||{};if(['resources','bindings'].includes(detail.section)||detail.section==='favorites'&&favoritesEnabled(settings)){activeTab=detail.section;initialFavorite=detail.favorite;render();root.closest('.popup-content')?.scrollTo({top:0});}});
+    root.guardLeave=leaveBindings;root.dispose=()=>{bindingPage?.dispose();bindingPage=null;};
     render();readVersion();checkLatest(false);return root;
 }

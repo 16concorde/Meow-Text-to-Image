@@ -1,3 +1,7 @@
+import * as bindingHostScript from '../../../../script.js';
+import {createCharacterBindingHost} from './src/platform/character-binding-host.js';
+import {createCharacterBindingsManagement} from './src/profiles/character-bindings-management.js';
+import {createBindingChatSettings} from './src/chat/character-binding-chat-settings.js';
 import * as hostPersonas from '../../../personas.js';
 import {createCharacterBindingStorage} from './src/platform/character-bindings-storage.js';
 import {createCharacterBindingsSession,SNAPSHOTS_KEY,snapshotSlot} from './src/profiles/character-bindings-session.js';
@@ -102,8 +106,11 @@ let bindingCapture=null;
 let chatObserver,chatRootObserver,observedChat,imageSaves=0;
 let queue=Promise.resolve(), streamActive=false, timer, autoScheduled=false, generationChat=null, settingsHost=null,imageToolsEpoch=0;
 let settingsPopup=null,pendingSettingsConfirm=null,autoSession=null,floatingDispose=()=>{},lastGestureReroll=0;
-const characterBindingStorage=createCharacterBindingStorage({getHeaders:()=>ctx().getRequestHeaders()});
-const characterBindings=createCharacterBindingsSession({context:ctx,persona:()=>hostPersonas.user_avatar,storage:characterBindingStorage,mode:()=>settings.promptConfig,models:()=>{
+const bindingHost=createCharacterBindingHost({context:ctx,persona:()=>hostPersonas.user_avatar,account:getCurrentUserHandle,writeExtensionField:extensionAPI.writeExtensionField,busy:()=>!!generationChat||imageSaves>0||bindingHostScript.isChatSaving===true||bindingHostScript.isGenerating?.()===true});
+const characterBindingStorage=createCharacterBindingStorage({getHeaders:()=>ctx().getRequestHeaders(),scope:bindingHost.scope});
+const bindingManagement=createCharacterBindingsManagement({storage:characterBindingStorage,host:bindingHost});
+const bindingChatSettings=createBindingChatSettings({host:bindingHost,management:bindingManagement});
+const characterBindings=createCharacterBindingsSession({context:ctx,persona:()=>hostPersonas.user_avatar,storage:characterBindingStorage,management:bindingManagement,chatSettings:bindingChatSettings,mode:()=>settings.promptConfig,models:()=>{
     const selected=settings.profileSelectionMode==='random'?settings.profiles.filter(p=>settings.randomProfileIds?.includes(p.id)):[settings.profiles[settings.active]];
     if(settings.eggProfileEnabled)selected.push(settings.profiles.find(p=>p.id===settings.eggProfileId));
     return selected.filter(Boolean).map(p=>p.model);
@@ -592,7 +599,7 @@ async function savePromptConfig(next){
     promptConfigSaving=true;
     const previous=settings.promptConfig;
     settings.promptConfig=next;
-    try{promptInjection.update();await persistSettings();eggMarkerCache.invalidate();}
+    try{await characterBindings.prepare();promptInjection.update();await persistSettings();eggMarkerCache.invalidate();}
     catch(error){if(settings.promptConfig===next){settings.promptConfig=previous;try{promptInjection.update();}catch{}}throw error;}
     finally{promptConfigSaving=false;}
 }
@@ -979,7 +986,7 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
         },renameVibe:body=>direct.rename(body),
         deleteVibe:async id=>{if(!await confirmSettings('删除这个 Vibe？所有配置中的引用也会移除。','删除 Vibe'))return false;await direct.delete(id);for(const p of settings.profiles)p.vibes=(p.vibes||[]).filter(v=>v.id!==id);save();return true;}});
     settingsHost=panel;
-    try{await showPopup(panel,POPUP_TYPE.TEXT,'',{wide:true,okButton:'完成',onClosing:()=>{if(pendingSettingsConfirm){pendingSettingsConfirm(false);return false;}return true;},onOpen:popup=>{
+    try{await showPopup(panel,POPUP_TYPE.TEXT,'',{wide:true,okButton:'完成',onClosing:async()=>{try{if(pendingSettingsConfirm){pendingSettingsConfirm(false);return false;}if(!await panel.guardLeave())return false;panel.dispose();return true;}catch(error){errorPopup(error);return false;}},onOpen:popup=>{
         settingsPopup=popup;popup.dlg.classList.add('miao-settings-dialog');
         if(initialPage)showPanelPage(initialPage.content,{...initialPage.options,parent:popup.dlg}).finally(()=>{if(popup.completeAffirmative)popup.completeAffirmative();else popup.dlg.close();}).catch(errorPopup);
     }});}
@@ -1048,12 +1055,14 @@ async function init() {
     }
     if(settings.promptConfig?.tagMode==='binding')await characterBindings.load().catch(()=>{});
     refreshPrompt();
-    for(const event of ['CHAT_CHANGED','CHAT_LOADED','PERSONA_CHANGED'])if(c.eventTypes[event])c.eventSource.on(c.eventTypes[event],async()=>{
-        bindingCapture=null;characterBindings.invalidate();
-        settingsHost?.querySelector('.miao-character-bindings')?.dispatchEvent(new Event('miao-bindings-changed'));
-        refreshPrompt();
-        if(settings.promptConfig?.tagMode==='binding')await characterBindings.load().catch(()=>{});refreshPrompt();
+    const reloadBindingContext=async()=>{characterBindings.invalidate();promptInjection.clear();if(settings.promptConfig?.tagMode==='binding'){try{await characterBindings.load();}catch(error){notices.error(redactErrorText(error.message),'角色绑定');return;}}refreshPrompt();};
+    bindingHost.subscribe(async change=>{
+        if(['CHAT_CHANGED','CHAT_LOADED','PERSONA_CHANGED'].includes(change.name))bindingCapture=null;
+        const current=characterBindings.identity();
+        if(['CHAT_CHANGED','CHAT_LOADED','PERSONA_CHANGED','CHARACTER_RENAMED','CHARACTER_DUPLICATED','CHARACTER_DELETED'].includes(change.name)||current.owners.some(o=>o.type===change.type&&o.stableKey===change.locator))await reloadBindingContext();
     });
+    bindingManagement.subscribe(change=>{const current=characterBindings.identity();if(change.external||(['saved','identity'].includes(change.kind)||change.kind==='initialized'&&!characterBindings.isLoading())&&current.owners.some(o=>o.type===change.target.type&&o.stableKey===change.target.locator))void reloadBindingContext();});
+    bindingHost.bind();
     bindPromptInjection({source:c.eventSource,eventTypes:c.eventTypes,injection:promptInjection});
     c.eventSource.on(c.eventTypes.GENERATION_AFTER_COMMANDS,()=>{if(bindingCapture){try{bindingCapture.bindings=structuredClone(characterBindings.rows());}catch{bindingCapture.bindings=[];}}});
 

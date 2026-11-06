@@ -1,0 +1,62 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {createRequire} from 'node:module';
+import {homedir} from 'node:os';
+import {mkdir,writeFile} from 'node:fs/promises';
+const require=createRequire(import.meta.url);
+test('management routes, bounded native selectors, drafts and ST/TT chat scope across mobile widths',{timeout:180000},async()=>{
+ let runtime;try{runtime=require('playwright');}catch{runtime=require(process.env.MIAO_PLAYWRIGHT_MODULE||`${homedir()}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright`);}
+ const server=spawn(process.execPath,['tests/preview-server.mjs'],{env:{...process.env,MIAO_PREVIEW_PORT:'0'},stdio:['ignore','pipe','pipe']});let browser;
+ try{
+  const url=await new Promise((resolve,reject)=>{let error='';const timer=setTimeout(()=>reject(Error(error||'preview startup timeout')),10000);server.stderr.on('data',d=>error+=d);server.stdout.on('data',d=>{const match=String(d).match(/http:\/\/[^\s]+/);if(match){clearTimeout(timer);resolve(match[0]);}});server.on('exit',()=>{clearTimeout(timer);reject(Error(error));});});
+  browser=await runtime.chromium.launch({channel:process.env.MIAO_BROWSER_CHANNEL||'chrome',headless:true});const metrics=[];
+  for(const [width,height] of [[1280,900],[320,740],[360,800],[390,844],[430,900],[844,390]]){
+   const mobile=width<700||height<500,page=await browser.newPage({viewport:{width,height}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+   await page.addInitScript(()=>{window.addEventListener('unhandledrejection',e=>(window.managementRejections??=[]).push(String(e.reason)));window.managementLongTasks=[];if(PerformanceObserver.supportedEntryTypes?.includes('longtask'))new PerformanceObserver(list=>{for(const e of list.getEntries())window.managementLongTasks.push({start:e.startTime,duration:e.duration});}).observe({type:'longtask'});});
+   await page.route('**/thumbnail?**',route=>route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=','base64')}));
+   await page.goto(url+'/?settings-smoke'+(mobile?'&tt':''));await page.locator('#miao-nai-menu').waitFor();
+   await page.evaluate(async mobile=>{
+    const p=window.preview,c=p.context;
+    c.characters=Array.from({length:1000},(_,i)=>({avatar:`management-${i}.png`,name:i===0?'Current Card':i===1||i===3?'剑抵山河':i===2?'角色a&角色b':'角色卡 '+i,data:{extensions:{}}}));c.characterId=0;c.chatMetadata={integrity:'current-integrity'};
+    c.powerUserSettings.personas=Object.fromEntries(Array.from({length:300},(_,i)=>[`user-${i}.png`,i<2?'Traveler':'User '+i]));c.powerUserSettings.persona_descriptions={'user-0.png':{title:'旅行者备注 '.repeat(20),description:'有界描述 '.repeat(20)}};c.getThumbnailUrl=(type,file)=>'/thumbnail?type='+type+'&file='+encodeURIComponent(file);
+    const personas=await import('/scripts/personas.js');personas.setAvatar('user-0.png');
+    c.saveChat=async()=>{(p.bindingDiskChats??={})[JSON.stringify([c.characters[c.characterId].avatar,p.chatId])]=structuredClone([{chat_metadata:c.chatMetadata},...p.chat]);};c.saveMetadataDebounced=()=>{};c.saveMetadata=c.saveChat;
+    c.selectCharacterById=async id=>{c.characterId=id;};c.openCharacterChat=async file=>{p.chatId=file;const data=p.bindingDiskChats[JSON.stringify([c.characters[c.characterId].avatar,file])];c.chatMetadata=structuredClone(data[0].chat_metadata);p.chat.splice(0,p.chat.length,...structuredClone(data.slice(1)));if(c.chatMetadata.persona)personas.setAvatar(c.chatMetadata.persona);await p.emit('CHAT_CHANGED');};await c.saveChat();
+    p.bindingDiskChats[JSON.stringify(['management-1.png','聊天 X'])]=[{chat_metadata:{integrity:'chat-x',persona:'user-1.png',unrelated:{keep:true}}}];p.bindingDiskChats[JSON.stringify(['management-1.png','聊天 Y'])]=[{chat_metadata:{integrity:'chat-y'}}];
+    if(mobile){window.__TAURITAVERN__.api??={};window.__TAURITAVERN__.api.chat={open(ref){const key=JSON.stringify([ref.characterId+'.png',ref.fileName]);return {metadata:{get:async()=>structuredClone(p.bindingDiskChats[key][0].chat_metadata),setExtension:async({namespace,value})=>{const meta=p.bindingDiskChats[key][0].chat_metadata;meta.extensions??={};meta.extensions[namespace]=structuredClone(value);p.directedMetadataSaves=(p.directedMetadataSaves||0)+1;}}};}};}
+    p.managementRequests=[];p.beforeRequest=async(url,options)=>{if(String(url).startsWith('/user/files/')||String(url).startsWith('/api/characters/')||url==='/api/chats/get')p.managementRequests.push({url,body:options?.body?JSON.parse(options.body):null});};await p.emit('PERSONA_CHANGED');
+    p.settings.promptConfig.tagMode='binding';await p.emit('GENERATION_AFTER_COMMANDS','normal');p.managementRequests=[];
+   },mobile);
+   await page.evaluate(()=>{window.managementNativeBack=window.__TAURITAVERN_HANDLE_BACK__;window.managementLongTasks=[];});
+   await page.locator('#miao-nai-menu').click();const button=name=>page.getByRole('button',{name,exact:true}),view=page.locator('.miao-character-bindings');
+   if(mobile){if(await page.locator('.miao-settings').getAttribute('data-section')!=='overview')await page.locator('.miao-drawer-back').click();await page.locator('.miao-overview-row[aria-label="角色绑定"]').click();}else await page.locator('.miao-tabs').getByRole('button',{name:'角色绑定',exact:true}).click();
+   await button('角色管理').waitFor();assert.equal(await page.evaluate(()=>window.preview.managementRequests.filter(r=>r.url.startsWith('/user/files/')).length),0);
+   const before=await page.evaluate(()=>window.preview.injections.miao_nai_image_instruction.text),start=Date.now();await button('角色管理').click();await view.locator('.miao-owner-row').first().waitFor();const firstMs=Date.now()-start;
+   assert.equal(await view.locator('.miao-owner-row').count(),40);assert.equal(await view.locator('img').count(),40);await mkdir('docs/local',{recursive:true});await page.screenshot({path:`docs/local/binding-management-selector-${width}x${height}.png`});assert.equal(await page.evaluate(()=>window.preview.managementRequests.filter(r=>r.url==='/api/chats/get').length),0);
+   const query=view.getByRole('searchbox',{name:'搜索所属对象',exact:true});await query.fill('角色b');await view.getByText('找到 1 个对象',{exact:true}).waitFor();assert.equal(await view.locator('.miao-owner-row').count(),1);
+   await query.fill('剑抵山河');await view.getByText('找到 2 个对象',{exact:true}).waitFor();await view.locator('.miao-owner-row').filter({hasText:'management-1.png'}).click();await button('添加绑定角色').click();
+   await view.getByRole('textbox',{name:'角色名',exact:true}).fill('角色A');await view.getByRole('textbox',{name:'别名（用顿号分隔）',exact:true}).fill('HeroAlias');await view.getByRole('textbox',{name:'固定正面',exact:true}).fill('boy, fixture appearance');await view.getByRole('textbox',{name:'固定负面',exact:true}).fill('fixture negative');await button('保存角色资料').click();await view.locator('textarea').first().waitFor({state:'detached'});
+   assert.equal(await page.evaluate(()=>window.preview.context.characterId),0);assert.equal(await page.evaluate(()=>window.preview.injections.miao_nai_image_instruction.text),before);
+   await button('返回上一级').click();assert.equal(await query.inputValue(),'剑抵山河');await view.getByText('找到 2 个对象',{exact:true}).waitFor();const requests=await page.evaluate(()=>window.preview.managementRequests.length);await query.fill('HEROALIAS');await view.getByText('找到 1 个对象',{exact:true}).waitFor();assert.equal(await page.evaluate(()=>window.preview.managementRequests.length),requests);await view.getByText('命中绑定：角色A',{exact:true}).waitFor();
+   await view.locator('.miao-owner-row').click();await button('添加绑定角色').click();await view.getByRole('textbox',{name:'角色名',exact:true}).fill('Retained Draft');await button('返回上一级').click();await view.locator('.miao-owner-row').click();assert.equal(await view.getByRole('textbox',{name:'角色名',exact:true}).inputValue(),'Retained Draft');await button('取消编辑').click();
+   await button('管理此卡的聊天开关').click();await button('聊天 X').click();await view.getByRole('switch',{name:'聊天启用C01',exact:true}).uncheck();await button('编辑此卡角色资料').click();await button('添加绑定角色').click();await view.getByRole('textbox',{name:'角色名',exact:true}).fill('New inherited');await view.getByRole('textbox',{name:'固定正面',exact:true}).fill('boy, second fixture');await button('保存角色资料').click();await view.locator('textarea').first().waitFor({state:'detached'});await button('返回上一级').click();
+   assert.equal(await view.getByRole('switch',{name:'聊天启用C01',exact:true}).isChecked(),false);assert.equal(await view.getByRole('switch',{name:'聊天启用C02',exact:true}).isChecked(),true);
+   assert.equal(await page.evaluate(()=>window.preview.context.characterId),0);await button(mobile?'保存至此聊天':'打开此聊天并保存开关').click();await view.getByText('此聊天开关已保存并读回确认',{exact:true}).waitFor();assert.equal(await page.evaluate(()=>window.preview.context.characterId),mobile?0:1);
+   assert.equal(await page.evaluate(()=>window.preview.bindingDiskChats[JSON.stringify(['management-1.png','聊天 X'])][0].chat_metadata.unrelated.keep),true);
+   const diagnostics=await view.evaluate(n=>n.diagnostics()),nodes=await view.locator('*').count();
+   for(let i=0;i<20;i++){await button('编辑此卡角色资料').click();await button('添加绑定角色').waitFor();await button('返回上一级').click();await view.getByRole('switch',{name:'聊天启用C01',exact:true}).waitFor();}
+   const after=await view.evaluate(n=>n.diagnostics());assert.equal(after.listeners,diagnostics.listeners);assert.equal(after.history,diagnostics.history);assert.ok(after.cache.bytes<=8*1024*1024);assert.ok(after.cache.entries<=8);assert.ok(await view.locator('*').count()<=nodes+5);
+   assert.equal(await view.evaluate(n=>n.scrollWidth<=n.clientWidth+1),true);await mkdir('docs/local',{recursive:true});await page.screenshot({path:`docs/local/binding-management-${width}x${height}.png`});
+   if(!mobile){
+    await button('编辑此卡角色资料').click();await button('添加绑定角色').click();await view.getByRole('textbox',{name:'角色名',exact:true}).fill('Persistent device draft');await view.getByRole('textbox',{name:'固定正面',exact:true}).fill('boy, local recovery draft');await page.waitForTimeout(500);
+    const persisted=await page.evaluate(async()=>{const {createBindingDraftStore}=await import('/scripts/extensions/third-party/test/src/platform/character-binding-drafts.js'),scope=JSON.stringify([location.origin,'miao-preview-user',null]);const store=createBindingDraftStore({scope:()=>scope});const restored=await store.load(),other=await createBindingDraftStore({scope:()=>scope+'other-account'}).load();return {restored:restored.some(([,value])=>value.form?.name==='Persistent device draft'),other:other.length};});assert.equal(persisted.restored,true);assert.equal(persisted.other,0);await button('取消编辑').click();
+   }else{
+    await button('编辑此卡角色资料').click();await button('添加绑定角色').click();await view.getByRole('textbox',{name:'固定正面',exact:true}).focus();await page.setViewportSize({width,height:420});await button('保存角色资料').scrollIntoViewIfNeeded();assert.equal(await view.evaluate(n=>n.scrollWidth<=n.clientWidth+1),true);await button('取消编辑').click();await page.setViewportSize({width,height});const depth=await view.evaluate(n=>n.diagnostics().history);assert.equal(await page.evaluate(()=>window.__TAURITAVERN_HANDLE_BACK__()),true);assert.equal(await view.evaluate(n=>n.diagnostics().history),depth-1);
+   }
+   await view.evaluate(n=>window.managementDisposedDiagnostics=n.diagnostics);await page.locator('.miao-drawer-close').click();await view.waitFor({state:'detached'});if(mobile)await page.waitForFunction(()=>window.__TAURITAVERN_HANDLE_BACK__===window.managementNativeBack);assert.equal(await page.evaluate(()=>window.managementDisposedDiagnostics().listeners),1);await page.evaluate(()=>delete window.managementDisposedDiagnostics);
+   assert.equal(await page.evaluate(()=>window.preview.calls.length),0);assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>window.managementRejections||[]),[]);const performance=await page.evaluate(()=>({longTasks:window.managementLongTasks,heapBytes:window.performance.memory?.usedJSHeapSize??null,requests:window.preview.managementRequests.length}));metrics.push({width,height,firstMs,rows:40,navigationCycles:20,listeners:after.listeners,cache:after.cache,performance});await page.close();
+  }
+  await writeFile('docs/local/binding-management-browser-metrics.json',JSON.stringify(metrics,null,2));
+ }finally{await browser?.close();server.kill();}
+});
