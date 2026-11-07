@@ -54,14 +54,16 @@ test('actual binding UI, D0, chat switches and complete ungenerated history on d
    assert.equal(await page.evaluate(()=>window.preview.calls.length),0);
    assert.equal(await page.evaluate(()=>window.preview.chat[0].miaoCharacterSnapshots),undefined);
    const snapshot=await page.evaluate(()=>structuredClone(window.preview.chat.at(-1).miaoCharacterSnapshots));
-   await page.locator('#miao-nai-menu').click();await go('角色绑定');await manage('card');await button('编辑 C01 Card Hero').click();await view.getByRole('textbox',{name:'固定正面',exact:true}).fill('boy, CHANGED APPEARANCE');await button('保存角色资料').click();await view.locator('.miao-binding-editor').waitFor({state:'detached'});await button('归档 C01 Card Hero').click();await view.locator('summary').click();await button('恢复 C01 Card Hero').waitFor();await page.locator('.miao-drawer-close').click();
    await button('生成插图').click();await page.waitForFunction(()=>window.preview.calls.length===1);await page.locator('.miao-image-card img').waitFor();
    const payload=await page.evaluate(()=>window.preview.calls[0]);assert.deepEqual(payload.parameters.characterPrompts.map(c=>c.uc),['blonde hair','black hair','']);assert.equal(payload.parameters.characterPrompts[1].prompt,'boy, silver hair, blue eyes, white shirt');assert.ok(!payload.input.includes('silver hair'));assert.deepEqual(await page.evaluate(()=>window.preview.chat.at(-1).miaoCharacterSnapshots),snapshot);
+   await page.locator('#miao-nai-menu').click();await go('角色绑定');await manage('card');await button('编辑 C01 Card Hero').click();await view.getByRole('textbox',{name:'固定正面',exact:true}).fill('boy, CHANGED APPEARANCE');await view.getByRole('textbox',{name:'固定负面',exact:true}).fill('LATEST CARD UC');await button('保存角色资料').click();await view.locator('.miao-binding-editor').waitFor({state:'detached'});await page.locator('.miao-drawer-close').click();
    await page.evaluate(()=>Object.assign(window.preview.settings.profiles[window.preview.settings.active],{width:640,scale:8,seed:555,positive:'CHANGED GLOBAL'}));
    await page.locator('.miao-image-card img').dblclick();await page.waitForFunction(()=>window.preview.calls.length===2);
    const fixedPayload=await page.evaluate(()=>window.preview.calls[1]);
    assert.equal(fixedPayload.parameters.seed,555);
-   assert.deepEqual({...fixedPayload,parameters:{...fixedPayload.parameters,seed:payload.parameters.seed}},payload);
+   const updated=structuredClone(payload);updated.parameters.characterPrompts[1].prompt='boy, CHANGED APPEARANCE, white shirt';updated.parameters.characterPrompts[1].uc='LATEST CARD UC';updated.parameters.v4_prompt.caption.char_captions[1].char_caption='boy, CHANGED APPEARANCE, white shirt';updated.parameters.v4_negative_prompt.caption.char_captions[1].char_caption='LATEST CARD UC';
+   assert.deepEqual({...fixedPayload,parameters:{...fixedPayload.parameters,seed:payload.parameters.seed}},updated);
+   assert.deepEqual(await page.evaluate(()=>window.preview.calls[0]),payload);assert.deepEqual(await page.evaluate(()=>window.preview.chat.at(-1).miaoCharacterSnapshots),snapshot);assert.equal(await button('重新关联绑定').count(),0);
    await page.waitForFunction(()=>document.querySelector('.miao-version-count')?.textContent==='2 / 2');
    // Keep consecutive user rerolls outside the existing 900ms gesture guard.
    await page.waitForTimeout(950);
@@ -69,7 +71,7 @@ test('actual binding UI, D0, chat switches and complete ungenerated history on d
    await page.locator('.miao-image-card img').dblclick();await page.waitForFunction(()=>window.preview.calls.length===3);
    const randomPayload=await page.evaluate(()=>window.preview.calls[2]);
    assert.notEqual(randomPayload.parameters.seed,555);
-   assert.deepEqual({...randomPayload,parameters:{...randomPayload.parameters,seed:payload.parameters.seed}},payload);
+   assert.deepEqual({...randomPayload,parameters:{...randomPayload.parameters,seed:payload.parameters.seed}},updated);
    await page.waitForFunction(()=>document.querySelector('.miao-version-count')?.textContent==='3 / 3');
    // Both automatic paths must persist the binding snapshot before a single POST.
    for(const mode of ['auto','stream']){

@@ -1,3 +1,4 @@
+import {resolveBindingPrompt} from '../prompts/character-binding-prompt.js';
 import {generationTimeoutSeconds} from './generation-timeout.js';
 import {retryGeneration} from './generation-retry.js';
 import {runWithQueue} from '../queue/cloud-queue.js';
@@ -35,6 +36,11 @@ export function regenerateHistoricalSeed(request, configuredSeed, random=Math.ra
     return {...request,seed};
 }
 
+// Preserve historical global parameters and Vibe; rebuild only character captions from verified owners.
+export function refreshHistoricalBindingRequest(request,prompt,bindings,seed){
+    const resolved=resolveBindingPrompt(prompt,request.model,bindings);
+    return {...regenerateHistoricalSeed(structuredClone(request),seed),naiCharacters:resolved.characters,naiCharacterNegatives:resolved.negatives};
+}
 // The snapshot is created when enqueueing, never read again during retries.
 export function runGenerationTask({scope,generate,queueOptions={},retryOptions={},canContinue=()=>true,onStatus=()=>{}}){
     const snapshot={...scope};

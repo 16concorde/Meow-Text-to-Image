@@ -71,3 +71,23 @@ test('duplicate tags within one message use separate immutable references',async
  const blocks=parseBodyBlocks(m.mes,'image###([\\s\\S]*?)###');await Promise.all(blocks.map(b=>f.session.accept(m,b)));
  const refs=Object.values(m[SNAPSHOTS_KEY]);assert.equal(refs.length,2);assert.notEqual(refs[0].ref,refs[1].ref);assert.ok(!JSON.stringify(m[SNAPSHOTS_KEY]).includes('C01'));
 });
+
+test('generation resolves latest confirmed fields while immutable snapshots remain identity evidence',async()=>{
+ const f=await populated(),{m,b}=message(f);await f.session.accept(m,b);
+ const originalRef=structuredClone(m[SNAPSHOTS_KEY]),snapshotFiles=[...f.files].filter(([path])=>path.includes('snapshot'));
+ const original=await f.session.resolveLatest(m,b);
+ let entry=f.session.current().entries.find(e=>e.archive.owner.type==='card');
+ await f.session.saveArchive(editBinding(entry.archive,{name:'Latest',aliases:['New alias'],positive:'new appearance',negative:'new UC'},entry.archive.bindings[0].uuid));
+ const latest=await f.session.resolveLatest(m,b);assert.equal(latest[0].positive,'new appearance');assert.equal(latest[0].negative,'new UC');assert.equal(original[0].positive,fields.positive);
+ assert.deepEqual(m[SNAPSHOTS_KEY],originalRef);assert.deepEqual([...f.files].filter(([path])=>path.includes('snapshot')),snapshotFiles);assert.equal((await f.session.resolve(m,b))[0].positive,fields.positive);
+ // Fresh-read sees another writer even without cache invalidation or a broadcast.
+ entry=f.session.current().entries.find(e=>e.archive.owner.type==='card');await f.storage.save(editBinding(entry.archive,{negative:'other tab UC'},entry.archive.bindings[0].uuid),entry.hash);
+ assert.equal((await f.session.resolveLatest(m,b))[0].negative,'other tab UC');
+ entry=f.session.current().entries.find(e=>e.archive.owner.type==='card');f.failWrite=true;await assert.rejects(f.session.saveArchive(editBinding(entry.archive,{negative:'UNSAVED'},entry.archive.bindings[0].uuid)));f.failWrite=false;
+ assert.equal((await f.session.resolveLatest(m,b))[0].negative,'other tab UC');
+ f.context.chatId='other-chat';f.session.invalidate();assert.equal((await f.session.resolveLatest(m,b))[0].negative,'other tab UC');
+ entry=f.session.current().entries.find(e=>e.archive.owner.type==='card');await f.session.saveArchive(editBinding(entry.archive,{archived:true},entry.archive.bindings[0].uuid));await assert.rejects(f.session.resolveLatest(m,b),/停用/);
+ await f.session.saveArchive(editBinding(f.session.current().entries.find(e=>e.archive.owner.type==='card').archive,{archived:false,defaultEnabled:false},entry.archive.bindings[0].uuid));await assert.rejects(f.session.resolveLatest(m,b),/停用/);
+ f.context.characters[0].avatar='other-card.png';await assert.rejects(f.session.resolveLatest(m,b),/身份无法验证/);
+ const snapshotPath=snapshotFiles[0][0];f.files.delete(snapshotPath);await assert.rejects(f.session.resolveLatest(m,b),/不可还原/);
+});

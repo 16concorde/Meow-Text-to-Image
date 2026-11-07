@@ -31,3 +31,12 @@ test('unknown, disabled, duplicate, multiple, misplaced, empty, V3 and over-limi
  assert.throws(()=>buildRequest(defaults,'scene'+Array.from({length:7},()=> ' | boy').join(''),bindings));
  for(const request of [{...buildRequest(defaults,'scene'),prompt:'scene | C01, x'},{...buildRequest(defaults,'scene | boy'),naiCharacterNegatives:[]},{...buildRequest(defaults,'scene'),naiCharacterNegatives:['x']}])assert.throws(()=>normalizeNAICharacterRequest(request));
 });
+
+test('historical request refresh replaces ordered character fields only and retains independent old versions',async()=>{
+ const {refreshHistoricalBindingRequest}=await import('../src/generation/generation-options.js');
+ const raw='scene | U01, smiling | C01, coat | boy, brown hair',old=buildRequest({...defaults,seed:123},raw,bindings);old.vibes=[{id:'frozen-vibe'}];const before=structuredClone(old);
+ const latest=bindings.map(b=>b.shortId==='C01'?{...b,positive:'LATEST',negative:'LATEST UC'}:b),request=refreshHistoricalBindingRequest(old,raw,latest,555);
+ assert.deepEqual(old,before);assert.equal(request.seed,555);assert.deepEqual(request.naiCharacters,[bindings[0].positive+', smiling','LATEST, coat','boy, brown hair']);assert.deepEqual(request.naiCharacterNegatives,['blonde hair','LATEST UC','']);
+ assert.deepEqual({...request,seed:old.seed,naiCharacters:old.naiCharacters,naiCharacterNegatives:old.naiCharacterNegatives},old);
+ const payload=naiPayload(request);assert.equal(payload.parameters.characterPrompts[1].uc,'LATEST UC');assert.equal(payload.parameters.v4_negative_prompt.caption.char_captions[1].char_caption,'LATEST UC');
+});

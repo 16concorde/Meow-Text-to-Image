@@ -12,12 +12,12 @@ export function createCharacterBindingsSession({context,persona,storage,mode,mod
     function current(){if(!loaded||loaded.key!==key())throw Error('角色绑定尚未加载或聊天已切换，请打开角色绑定页重载');if(management){const c=context(),native=c.characters?.[c.characterId]?.data?.extensions?.meow_t2i?.ownerId,card=loaded.entries.find(e=>e.archive.owner.type==='card');if(native&&card?.archive.owner.ownerId!==native)throw Error('角色卡所属身份已改变，请重新准备绑定');}return loaded;}
     function assertKey(expected){if(key()!==expected)throw Error('聊天、角色卡或用户设定已切换，请重试');}
     function rows(){return activeBindings(current().entries.map(e=>e.archive),context().chatMetadata);}
-    async function load(){
+    async function load({fresh=false}={}){
         const captured=identity(),capturedKey=contextIdentity(captured)+(management?management.host.scope():'');
-        if(loaded?.key===capturedKey){try{return current();}catch{loaded=null;}}
-        if(loading?.key===capturedKey)return loading.promise;
+        if(!fresh&&loaded?.key===capturedKey){try{return current();}catch{loaded=null;}}
+        if(!fresh&&loading?.key===capturedKey)return loading.promise;
         loaded=null;failure=null;const token=++epoch;
-        const promise=Promise.all(captured.owners.map(owner=>management?management.open({type:owner.type,locator:owner.stableKey,name:owner.label}):storage.load(owner))).then(entries=>{
+        const promise=Promise.all(captured.owners.map(owner=>management?management.open({type:owner.type,locator:owner.stableKey,name:owner.label},{fresh}):storage.load(owner))).then(entries=>{
             assertKey(capturedKey);if(epoch!==token)throw Error('角色绑定加载已过期');
             loaded={key:capturedKey,identity:captured,entries};return current();
         }).catch(error=>{if(epoch===token)failure=error;throw error;}).finally(()=>{if(loading?.promise===promise)loading=null;});
@@ -28,10 +28,10 @@ export function createCharacterBindingsSession({context,persona,storage,mode,mod
         identity,current,rows,load,management,chatSettings,state:()=>loading?'loading':loaded&&loaded.key===key()?'ready':failure?'error':'idle',isLoading:()=>!!loading,
         invalidate(){epoch++;loaded=null;loading=null;failure=null;},
         roster(){if(!bindingMode())return '';return bindingRoster(rows());},
-        async prepare({verify=true}={}){
+        async prepare({verify=true,fresh=false}={}){
             if(!bindingMode())return;
             await management?.awaitConfirmed?.(identity().owners.map(owner=>({type:owner.type,locator:owner.stableKey})));
-            await load();
+            await load({fresh});
             chatSettings?.assertCurrentConfirmed();
             if(verify&&management)await management.verifySources(current().entries);
             if(current().entries.some(e=>e.legacyChanged))throw Error('旧版角色资料已改变，绑定生成已停止，请从完整备份核对 v1 与 v2 资料');
@@ -94,11 +94,28 @@ export function createCharacterBindingsSession({context,persona,storage,mode,mod
         async resolve(message,block){
             if(!bindingReferences(block.prompt).length)return undefined;
             const captured=key(),ref=message[SNAPSHOTS_KEY]?.[snapshotSlot(message.swipe_id??0,block)];
-            if(!ref||ref.prefixHash!==sha256Sync(message.mes.slice(0,block.start)))throw Error('历史绑定不可还原：此 Tag 没有快照。请使用「重新关联绑定」确认使用当前档案，或编辑本次 Tag');
+            if(!ref||ref.prefixHash!==sha256Sync(message.mes.slice(0,block.start)))throw Error('历史绑定不可还原：此 Tag 没有快照。请编辑该 Tag 或恢复相应资料');
             if(unconfirmed.get(message)?.has(snapshotSlot(message.swipe_id??0,block))){await chatSettings.confirmMessage(message,snapshotSlot(message.swipe_id??0,block),ref);unconfirmed.get(message).delete(snapshotSlot(message.swipe_id??0,block));}
             const snapshot=await storage.readSnapshot(ref.ref);assertKey(captured);
-            if(snapshot.schemaVersion!==1||snapshot.prompt!==block.prompt||snapshot.messageId!==message.miao_nai_image_id||!Array.isArray(snapshot.bindings))throw Error('历史绑定快照与当前 Tag 不匹配，请重新关联');
+            if(snapshot.schemaVersion!==1||snapshot.prompt!==block.prompt||snapshot.messageId!==message.miao_nai_image_id||snapshot.swipe!==(message.swipe_id??0)||snapshot.bodyIndex!==block.bodyIndex||!Array.isArray(snapshot.bindings))throw Error('历史绑定快照与当前 Tag 不匹配，请编辑该 Tag 或恢复相应资料');
             return snapshot.bindings.map(b=>({...b,enabled:true,archived:false}));
+        },
+        // The immutable message snapshot proves identity; only confirmed current archives supply content.
+        async resolveLatest(message,block){
+            const captured=key(),text=message.mes,swipe=message.swipe_id??0;
+            if(!bindingMode())throw Error('含绑定 ID 的 Tag 需要内置角色绑定模式');
+            const frozen=await api.resolve(message,block);assertKey(captured);
+            await api.prepare({fresh:true});assertKey(captured);
+            if(message.mes!==text||(message.swipe_id??0)!==swipe||!context().chat.includes(message)||message.mes.slice(block.start,block.start+block.raw.length)!==block.raw)throw Error('消息、Tag 或分支已切换，请重试');
+            const latest=rows();
+            const verified=frozen.map(old=>{
+                const row=latest.find(b=>ownerIdentity(b.owner)===ownerIdentity(old.owner)&&b.uuid===old.uuid&&b.shortId===old.shortId);
+                if(!row||!row.enabled||row.archived)throw Error('历史绑定身份无法验证或已停用，请到角色／聊天管理恢复相应资料');
+                return structuredClone(row);
+            });
+            // Also reject incomplete snapshots instead of filling missing identities from short IDs.
+            resolveBindingPrompt(block.prompt,'nai-diffusion-5-full',verified);
+            return verified;
         },
         async settled(message,block){const slot=snapshotSlot(message.swipe_id??0,block),job=pending.get(message)?.get(slot);if(job)await job;if(unconfirmed.get(message)?.has(slot)){await chatSettings.confirmMessage(message,slot,message[SNAPSHOTS_KEY]?.[slot]);unconfirmed.get(message).delete(slot);}},
     };

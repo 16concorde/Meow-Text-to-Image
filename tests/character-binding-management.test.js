@@ -174,3 +174,18 @@ test('generation waits for owner confirmation and blocks current-chat writes fro
  const state=await f.chatSettings.read(f.chatSettings.current()),row=f.chatSettings.rows(state)[0];const saving=f.chatSettings.save(state,{[bindingSwitchKey(row.owner,row)]:false},{allowOpen:false});
  assert.throws(()=>f.chatSettings.assertCurrentConfirmed(),/保存结果/);await saving;assert.doesNotThrow(()=>f.chatSettings.assertCurrentConfirmed());
 });
+
+test('latest generation waits for v2 owner save confirmation and refuses another owner with the same short ID',async()=>{
+ const {createCharacterBindingsSession}=await import('../src/profiles/character-bindings-session.js');
+ const {defaultTreeSettings}=await import('../src/prompts/tree-settings.js');
+ const {parseBodyBlocks}=await import('../src/core/core.js');
+ const f=managementFixture(),{entry}=await saved(f),other=await saved(f,1);
+ const session=createCharacterBindingsSession({context:()=>f.context,persona:()=>f.avatar,storage:f.storage,management:f.management,chatSettings:f.chatSettings,mode:()=>({...defaultTreeSettings(),tagMode:'binding'}),models:()=>['nai-diffusion-4-5-full']});
+ const m={mes:'image###scene | C01, smiling###',swipe_id:0};f.context.chat.push(m);const b=parseBodyBlocks(m.mes,'image###([\\s\\S]*?)###')[0];await session.accept(m,b);
+ const frozen=await session.resolveLatest(m,b);assert.equal(frozen[0].negative,fields.negative);
+ const path=await f.storage.filename(entry.archive.owner);let release,started;const begun=new Promise(resolve=>{started=resolve;});f.onUpload=async body=>{if(body.name===path){started();await new Promise(resolve=>{release=resolve;});}};
+ const saving=f.management.save(entry,editBinding(entry.archive,{positive:'LATEST POSITIVE',negative:'LATEST UC'},entry.archive.bindings[0].uuid));await begun;
+ let resolved=false;const preparing=session.resolveLatest(m,b).then(rows=>{resolved=true;return rows;});await new Promise(resolve=>setTimeout(resolve,10));assert.equal(resolved,false);release();await saving;
+ const latest=await preparing;assert.equal(latest[0].negative,'LATEST UC');assert.equal(latest[0].positive,'LATEST POSITIVE');assert.equal(frozen[0].negative,fields.negative);
+ f.context.characterId=1;await assert.rejects(session.resolveLatest(m,b),/身份无法验证/);assert.equal(other.entry.archive.bindings[0].shortId,'C01');
+});

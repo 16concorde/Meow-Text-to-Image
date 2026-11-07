@@ -18,7 +18,7 @@ import {fingerprintKey,runWithQueue,validateQueueURL} from './src/queue/cloud-qu
 import {randomId} from './src/platform/browser-crypto.js';
 import {createThumbnails,imageBlob,blobBase64,localImagePath,makeThumbnail} from './src/images/image-thumbnails.js';
 import {createFavorites,validateFavorite,favoritesEnabled,FAVORITE_FOLDER,FAVORITE_IMAGE_LIMIT} from './src/prompts/prompt-favorites.js';
-import {generationOptions,migrateGenerationOptions,migrateGenerationMode,runGenerationTask,regenerateHistoricalSeed} from './src/generation/generation-options.js';
+import {generationOptions,migrateGenerationOptions,migrateGenerationMode,runGenerationTask,refreshHistoricalBindingRequest} from './src/generation/generation-options.js';
 import {waitForGeneration} from './src/generation/generation-delay.js';
 import {showPagePopup} from './src/ui/page-popup.js';
 import {showPanelPage} from './src/ui/panel-page.js';
@@ -310,7 +310,6 @@ function tagEditor(message,block){
             buildRequest(settings.profiles[settings.active],next.block.prompt,await characterBindings.resolve(live,next.block));
         }else buildRequest(settings.profiles[settings.active],next.block.prompt);
         const record=state(live,identity(live,block)),oldText=live.mes;
-        if(record&&bindingReferences(next.block.prompt).length)record.bindingReassociated=true;
         live.mes=next.text;if(live.swipes)live.swipes[swipe]=next.text;
         moveSwipeImage(live,swipe,blockSlot(block),blockSlot(next.block),record);
         try{await inStage('chat-save',()=>ctx().saveChat());}
@@ -332,9 +331,10 @@ async function startGeneration(message,block,{automatic=false,egg=false}={}) {
     if(bound)captureBindingTags();
     if(bound)await characterBindings.settled(message,block);
     const previous=state(message,key);
-    const historical=bound&&previous?.request&&previous.tagPrompt===block.prompt&&!previous.bindingReassociated;
+    const historical=bound&&previous?.request&&previous.tagPrompt===block.prompt;
+    const bindings=bound?await characterBindings.resolveLatest(message,block):undefined;
     const seedProfile=historical?(settings.profiles.find(p=>p.id===previous.profileId)??profile):profile;
-    const request=historical?regenerateHistoricalSeed(structuredClone(previous.request),seedProfile.seed):buildRequest(profile,block.prompt,bound?await characterBindings.resolve(message,block):undefined);
+    const request=historical?refreshHistoricalBindingRequest(previous.request,block.prompt,bindings,seedProfile.seed):buildRequest(profile,block.prompt,bindings);
     if(chat!==currentChat()||!blocks(message).some(b=>b.raw===block.raw&&b.start===block.start))throw Error('聊天或 Tag 已切换，请重新生成');
     if(running.has(taskId))return running.get(taskId).promise;
     if(!historical)request.vibes=selectVibes(profile,settings.vibeLibrary);
@@ -460,13 +460,6 @@ function makeCard(message,block) {
             return showPrompt(block.prompt,enabled?(profile.vibes||[]).map(v=>({...v,name:settings.vibeLibrary?.find(item=>item.id===v.id)?.name||v.name||v.id})):[],profile.name,true,enabled,tagEditor(message,block),policy);
         });
     }
-    if(bindingReferences(block.prompt).length)button('重新关联绑定',async()=>{
-            if(!await confirmSettings('此操作使用当前角色档案为本次 Tag 创建新快照；已有图片版本保留原请求。','重新关联绑定',{confirmLabel:'使用当前绑定重新关联'}))return;
-            await characterBindings.accept(message,block,{reassociate:true});
-            // Keep existing image versions, but future generations use this newly confirmed Tag snapshot.
-            const record=state(message,identity(message,block));if(record){record.bindingReassociated=true;writeSwipeImage(message,message.swipe_id??0,blockSlot(block),record);await ctx().saveChat();}
-            notices.success('已重新关联当前绑定','角色绑定');
-    },actions);
     if(task){const progress=el('span',task.status,'miao-image-progress');progress.setAttribute('role','status');card.append(progress);}
     card.dataset.status=String(selected)+':'+versions.map(v=>v.url+':'+!!v.deleted).join('|')+':'+(task?.status||'')+':'+(settings.rerollClicks===3?3:2)+':favorites='+favoritesEnabled(settings);
     card.append(actions);
