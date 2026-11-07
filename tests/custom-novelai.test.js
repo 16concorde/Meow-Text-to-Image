@@ -16,14 +16,14 @@ const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42
 const zip=Buffer.from([80,75,3,4,0,0]);
 const key='custom-token.with-full.suffix',prompt='private prompt with\nnew line',negative='private negative',encoding='cHJpdmF0ZS12aWJl';
 const id='12345678-1234-1234-1234-123456789abc';
-const raw={id,name:'fixture',image:'cHJpdmF0ZS1pbWFnZQ==',encodings:{'v4-5full':{fixture:{encoding,params:{information_extracted:1}}}}};
+const raw={id,name:'fixture',image:png.toString('base64'),encodings:{'v4-5full':{fixture:{encoding,params:{information_extracted:1}}}}};
 const request=()=>({...buildRequest({...defaults,model:'nai-diffusion-4-5-full'},prompt),negative_prompt:negative,vibes:[]});
 function fixture({url='https://relay.invalid/image/custom?route=%2Fraw',reply=()=>new Response(png),settings:overrides={},onDiagnostic=()=>{}}={}){
     const settings={naiConnection:'custom',customGenerationURL:url,customEncodeURL:'https://encode.invalid/independent',customKeyHash:'custom-hash',keyHash:'official-hash',vibeLibrary:[{id}],...overrides},calls=[];
-    const client=createDirectClient({settings,save(){},getHeaders:()=>({'X-ST':'host-only'}),getKey:async(expected,connection)=>{if(expected)assert.equal(expected,connection.keyHash);return connection.naiConnection==='custom'?key:'official-token';},unzipPNG:async bytes=>{assert.deepEqual(Buffer.from(bytes),zip);return png.toString('base64');},onDiagnostic,fetchImpl:async(url,options={})=>{
+    const stored=new Map([['/user/files/miao-vibe-'+id+'.json',structuredClone(raw)]]);const client=createDirectClient({settings,preparePreview:async item=>item,save(){},getHeaders:()=>({'X-ST':'host-only'}),getKey:async(expected,connection)=>{if(expected)assert.equal(expected,connection.keyHash);return connection.naiConnection==='custom'?key:'official-token';},unzipPNG:async bytes=>{assert.deepEqual(Buffer.from(bytes),zip);return png.toString('base64');},onDiagnostic,fetchImpl:async(url,options={})=>{
         calls.push({url,options});
-        if(url.startsWith('/user/files/'))return Response.json(raw);
-        if(url==='/api/files/upload')return Response.json({path:'/user/files/'+JSON.parse(options.body).name});
+        if(url.startsWith('/user/files/'))return Response.json(stored.get(url));
+        if(url==='/api/files/upload'){const body=JSON.parse(options.body),path='/user/files/'+body.name;stored.set(path,JSON.parse(Buffer.from(body.data,'base64').toString()));return Response.json({path});}
         return reply(url,options);
     }});
     return {settings,client,calls};
@@ -151,10 +151,10 @@ test('generic 403 and unknown 502 do not guess parameter limits or change/retry 
     }
 });
 
-test('missing encoding endpoint blocks online encoding before any I/O; import/export of existing Vibes remains available',async()=>{
+test('missing encoding endpoint blocks online encoding before any encode POST; import/export of existing Vibes remains available',async()=>{
     const {client,settings,calls}=fixture({settings:{customEncodeURL:''}});
     assert.equal(onlineEncodingAvailable(settings),false);
-    await assert.rejects(client.encode({id,model:'nai-diffusion-4-5-full',information:.5}),/禁用在线 Vibe 编码/);assert.equal(calls.length,0);
+    await assert.rejects(client.encode({id,model:'nai-diffusion-4-5-full',information:.5}),/禁用在线 Vibe 编码/);assert.equal(calls.filter(call=>call.url?.includes('encode-vibe')).length,0);
     const [item]=await client.import({data:raw});assert.ok(item.id);
     const exported=await client.export([id]);assert.equal(exported.length,1);
     assert.equal(JSON.stringify(exported).includes(key),false);assert.equal(JSON.stringify(settings).includes(key),false);

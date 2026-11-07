@@ -35,7 +35,7 @@ export function planProfileRemoval(settings,ids){
 export function sampleRequest(profile,library=[],prompt=SAMPLE_PROMPT){
     if(typeof prompt!=='string'||!prompt.trim())throw Error('请填写例图提示词');
     if(bindingReferences(prompt).length)throw Error('配置例图不支持绑定 ID，请改为完整人物 Tag');
-    const request=buildRequest({...profile,width:512,height:512,seed:246813579},prompt);
+    const request=buildRequest({...profile,width:512,height:512,seed:246813579},prompt,[],{fixedSize:true});
     request.vibes=selectVibes(profile,library,()=>0);return request;
 }
 export function sampleSignature(profile,library=[],prompt=SAMPLE_PROMPT){const request=sampleRequest(profile,library,prompt);request.vibes=request.vibes.map(({id,key,strength})=>({id,key,strength}));return JSON.stringify(request);}

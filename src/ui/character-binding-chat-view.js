@@ -1,12 +1,12 @@
 import {bindingSwitchKey} from '../profiles/character-bindings.js';
 import {BINDING_PAGE_SIZE as SIZE,bindingNode as n,bindingAction as action,bindingIcon as icon,bindingSwitch,bindingViewport} from './character-binding-controls.js';
 export function createBindingChatView({chatSettings,management,route,draft,onOwner,onSelectChat,onError,onState=()=>{}}){
-    const root=n('section',undefined,'miao-binding-chat'),status=n('p','正在加载…','miao-muted'),feedback=n('div');status.setAttribute('aria-live','polite');root.append(status);let disposed=false,state,pending=null,timer,statusTimer,epoch=0;
+    const root=n('section',undefined,'miao-binding-chat'),status=n('p','正在加载…','miao-muted'),feedback=n('div');status.setAttribute('aria-live','polite');root.append(status);let currentWarning;let disposed=false,state,pending=null,timer,statusTimer,epoch=0;
     const scope=management.host.scope(),active=()=>!disposed&&management.host.scope()===scope;
     const dirty=()=>{draft.dirty=Object.keys(draft.values||{}).length>0||!!draft.globalOperation;onState();};
     function fail(error){if(!active())return;status.textContent=['unknown','unconfirmed'].includes(error.saveState)?'保存结果待确认，请先查证。':error.message;feedback.replaceChildren();action(feedback,'重试／查证保存',save,fail);
         if(error.latestState){const comparison=n('section',undefined,'miao-binding-conflict');comparison.append(n('h4','聊天开关冲突比较'));for(const row of chatSettings.rows(error.latestState)){const key=bindingSwitchKey(row.owner,row),intent=draft.values?.[key];if(intent!==undefined)comparison.append(n('p',row.shortId+' · '+row.name+'：当前版本'+(row.enabled?'开':'关')+'；本地意图'+(intent==='inherit'?'恢复全局':intent?'开':'关')));}
-            action(comparison,'读取当前版本并保留开关意图',()=>{state=error.latestState;draft.chatBaseline={baseHash:state.baseHash,integrity:state.integrity,scope:state.scope};dirty();paint();},fail);
+            action(comparison,'读取当前版本并保留开关意图',()=>{state=error.latestState;draft.chatBaseline={baseHash:state.baseHash,integrity:state.integrity,scope:state.scope,sidecarHash:state.sidecar?.hash??null};dirty();paint();},fail);
             action(comparison,'放弃本地开关并读取当前版本',()=>{state=error.latestState;draft.values={};draft.failed=false;draft.chatBaseline=null;dirty();paint();},fail);action(comparison,'继续编辑',()=>comparison.remove(),fail);feedback.append(comparison);
         }
         if(error.saveState==='conflict'&&draft.globalOperation){const op=draft.globalOperation;action(feedback,'读取对象当前版本并保留全局开关意图',async()=>{const latest=await management.open(op.entry.target,{fresh:true}),next=structuredClone(latest.archive);for(const binding of next.bindings){const base=op.entry.archive.bindings.find(b=>b.uuid===binding.uuid),desired=op.archive.bindings.find(b=>b.uuid===binding.uuid);if(base&&desired&&base.defaultEnabled!==desired.defaultEnabled&&binding.defaultEnabled!==desired.defaultEnabled){binding.defaultEnabled=desired.defaultEnabled;binding.revision++;}}op.entry=latest;op.archive=next;dirty();paint();},fail);}
@@ -28,16 +28,16 @@ export function createBindingChatView({chatSettings,management,route,draft,onOwn
             if(draft.failed){const fresh=await chatSettings.read(state.ref,{previewPersona:route.previewPersona});
                 const same=Object.entries(draft.values).every(([key,value])=>value==='inherit'?!Object.hasOwn(fresh.settings.values,key):fresh.settings.values[key]===value);
                 if(same){state=fresh;draft.values={};draft.failed=false;draft.chatBaseline=null;dirty();return;}
-                if(fresh.baseHash!==(draft.chatBaseline?.baseHash??state.baseHash)||fresh.integrity!==(draft.chatBaseline?.integrity??state.integrity))throw Object.assign(Error('聊天元数据已改变，请继续编辑并比较，未覆盖远端开关'),{saveState:'conflict',latestState:fresh});state=fresh;
+                if(fresh.baseHash!==(draft.chatBaseline?.baseHash??state.baseHash)||fresh.integrity!==(draft.chatBaseline?.integrity??state.integrity)||(fresh.sidecar?.hash??null)!==(draft.chatBaseline?.sidecarHash??state.sidecar?.hash??null))throw Object.assign(Error('聊天元数据已改变，请继续编辑并比较，未覆盖远端开关'),{saveState:'conflict',latestState:fresh});state=fresh;
             }
-            try{state=await chatSettings.save(state,draft.values,{allowOpen:false});draft.values={};draft.failed=false;draft.chatBaseline=null;dirty();}catch(error){draft.failed=true;dirty();if(error.saveState==='conflict'&&!error.latestState)try{error.latestState=await chatSettings.read(state.ref,{previewPersona:route.previewPersona});}catch{}throw error;}
+            try{state=await chatSettings.save(state,draft.values);draft.values={};draft.failed=false;draft.chatBaseline=null;dirty();}catch(error){draft.failed=true;dirty();if(error.saveState==='conflict'&&!error.latestState)try{error.latestState=await chatSettings.read(state.ref,{previewPersona:route.previewPersona});}catch{}throw error;}
         });
         if(draft.globalOperation)await applyGlobal(draft.globalOperation);
     }
-    function change(values){if(pending||draft.failed)throw Error('请先处理未确认的保存');draft.chatBaseline??={baseHash:state.baseHash,integrity:state.integrity,scope:state.scope};draft.values={...draft.values,...values};dirty();return save();}
+    function change(values){if(pending||draft.failed)throw Error('请先处理未确认的保存');draft.chatBaseline??={baseHash:state.baseHash,integrity:state.integrity,scope:state.scope,sidecarHash:state.sidecar?.hash??null};draft.values={...draft.values,...values};dirty();return save();}
     async function applyGlobal(op){return run(async()=>{const result=await management.save(op.entry,op.archive);state.entries=state.entries.map(entry=>entry.target.type===result.target.type&&entry.target.locator===result.target.locator?result:entry);draft.globalOperation=null;dirty();});}
     function paint(){if(!active())return;const focused=root.contains(document.activeElement)?{label:document.activeElement.getAttribute('aria-label'),text:document.activeElement.textContent}:null;root.replaceChildren(status,feedback);feedback.replaceChildren();status.textContent=route.chatRef.fileName;const writable=chatSettings.writable(route.chatRef);
-        if(!writable){root.append(n('p','打开此聊天后可修改开关','miao-muted'));action(root,'打开此聊天',async()=>{await chatSettings.openChat(route.chatRef);await load();},fail);}
+        const heading=n('div',undefined,'miao-chat-heading');heading.append(n('h3',route.chatRef.fileName));currentWarning=n('span','不是当前酒馆所打开的聊天窗口，注意确认','miao-muted');heading.append(currentWarning);root.append(heading);refreshContext();
         if(state.collision)root.append(n('p','此聊天复制了其他聊天的 UUID；保存时会分配独立聊天身份，保留原覆盖。','miao-muted'));
         const rows=chatSettings.rows(state);
         for(const entry of state.entries){const group=n('section',undefined,'miao-binding-chat-group'),heading=n('div',undefined,'miao-binding-group-heading'),list=bindingViewport(entry.target.name+'的聊天开关');heading.append(n('h3',entry.target.name));root.append(group);group.append(heading,list);list.scrollTop=route.chatScroll?.[entry.target.type]||0;list.onscroll=()=>{route.chatScroll??={};route.chatScroll[entry.target.type]=list.scrollTop;};
@@ -59,5 +59,6 @@ export function createBindingChatView({chatSettings,management,route,draft,onOwn
         },fail);button.disabled=!!draft.failed;button.dataset.readonly=String(!!draft.failed);}
         if(draft.failed||draft.globalOperation){status.textContent='有未确认的保存，请重试或查证';action(feedback,'重试／查证保存',save,fail);}if(focused)[...root.querySelectorAll('button,input')].find(el=>focused.label?el.getAttribute('aria-label')===focused.label:el.textContent===focused.text)?.focus({preventScroll:true});onState();
     }
-    void load();return {element:root,save:async()=>{try{await save();}catch(error){fail(error);throw error;}},flushPending,canSave:()=>!!state&&!!draft.dirty,hasPending:()=>!!pending,hasFailure:()=>!!draft.failed||!!draft.globalOperation,dispose(){disposed=true;epoch++;clearTimeout(timer);clearTimeout(statusTimer);}};
+    function refreshContext(){if(currentWarning)currentWarning.hidden=!!chatSettings.isCurrent(route.chatRef);}
+    void load();return {element:root,refreshContext,save:async()=>{try{await save();}catch(error){fail(error);throw error;}},flushPending,canSave:()=>!!state&&!!draft.dirty,hasPending:()=>!!pending,hasFailure:()=>!!draft.failed||!!draft.globalOperation,dispose(){disposed=true;epoch++;clearTimeout(timer);clearTimeout(statusTimer);}};
 }

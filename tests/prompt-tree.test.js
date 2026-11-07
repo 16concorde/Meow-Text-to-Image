@@ -1,129 +1,56 @@
-import {defaultLegacyPromptSettings} from './support/legacy-prompt-settings.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {promptTree,treeById,treeRoots,validatePromptTree} from '../src/prompts/tree-defaults.js';
-import {defaultPromptSettings,fixedMacroSnapshot,updateFixedMacros,migratePromptSettings} from '../src/prompts/prompt-settings.js';
-import {defaultTreeSettings,effectiveEnabled,savedEnabled,treeText,withTreeText,withTreeEnabled,migrateTreeSettings,promptWarnings} from '../src/prompts/tree-settings.js';
+import {defaultTreeSettings,migrateTreeSettings,effectiveEnabled,withTreeText,withTreeEnabled,treeText} from '../src/prompts/tree-settings.js';
+import {upgradeRevision4} from '../src/prompts/tree-migration.js';
 import {composePrompt} from '../src/prompts/prompt-composer.js';
-import {promptTemplates} from '../src/prompts/prompt-templates.js';
-import {createPromptInjection,PROMPT_ID} from '../src/platform/prompt-injection.js';
+import {fixedMacroSnapshot,updateFixedMacros} from '../src/prompts/prompt-settings.js';
 import {createEggMarkerCache} from '../src/profiles/easter-egg-selection.js';
-const source=JSON.parse(readFileSync(new URL('./support/prompt-tree-source.json',import.meta.url),'utf8'));
-
-test('fixed registry has explicit three-level parents and preserves all 31 approved default blocks',()=>{
- assert.equal(validatePromptTree(),true);assert.equal(new Set(promptTree.map(n=>n.nodeId)).size,promptTree.length);
- assert.deepEqual(treeRoots.map(id=>treeById[id].displayId),['00','01','02','03','04','05']);
- assert.equal(treeById['selfcheck.egg'].parentId,'selfcheck');assert.equal(treeById['egg.description'].parentId,'egg');
- assert.deepEqual(treeById.selfcheck.children.slice(-4),['selfcheck.item10','selfcheck.egg','selfcheck.nsfw','selfcheck.total']);
- assert.deepEqual(treeById.composition.children,['egg']);assert.equal(treeById.egg.parentId,'composition');assert.equal(treeById.egg.displayId,'01.01');assert.deepEqual(treeById.tags.children,['tags.full','tags.binding']);assert.deepEqual(Object.keys(treeById.composition.slots),['body']);
- assert.equal(Object.keys(source).length,31);let slots=0;
- for(const node of promptTree)slots+=Object.keys(node.slots).length;assert.equal(slots,32);
- for(const [displayId,{nodeId,slot,sha256}] of Object.entries(source)){
-  const body=treeById[nodeId].slots[slot];assert.equal(createHash('sha256').update(body).digest('hex'),sha256,displayId+' changed');
- }
- assert.throws(()=>promptTree.push({}));assert.throws(()=>treeById.selfcheck.children.reverse());assert.throws(()=>{treeById.egg.label='new';});
- const invalid=structuredClone(promptTree);invalid[1].parentId='missing';assert.throws(()=>validatePromptTree(invalid));
- const duplicate=structuredClone(promptTree);duplicate[1].nodeId=duplicate[0].nodeId;assert.throws(()=>validatePromptTree(duplicate));
+import {revision4Settings} from './support/revision4-settings.js';
+const source=JSON.parse(readFileSync(new URL('./support/prompt-tree-source.json',import.meta.url)));
+test('new semantic registry covers every approved source slot and rejects cycles',()=>{
+ assert.equal(validatePromptTree(),true);assert.deepEqual(treeRoots,['task','composition','tags','nsfw','selfcheck','output']);
+ assert.deepEqual(treeById.task.children,[]);assert.equal(treeById.task.editable,false);assert.deepEqual(treeById.nsfw.children,['orientation']);assert.equal(treeById['nsfw.rules'],undefined);
+ assert.deepEqual(treeById.tags.children,['tags.full','tags.binding','tags.fan','tags.egg']);
+ assert.deepEqual(treeById.selfcheck.children,['selfcheck.item1','selfcheck.item2','selfcheck.egg','selfcheck.fan','selfcheck.roles.full','selfcheck.roles.binding','selfcheck.item4','selfcheck.nsfw','selfcheck.item5']);
+ assert.equal(Object.keys(source).length,promptTree.reduce((n,node)=>n+Object.keys(node.slots).length,0));
+ for(const {nodeId,slot,sha256} of Object.values(source))assert.equal(createHash('sha256').update(treeById[nodeId].slots[slot]).digest('hex'),sha256,nodeId);
+ assert.throws(()=>{treeById.task.slots.body='changed';});const bad=structuredClone(promptTree);bad.find(n=>n.nodeId==='nsfw').condition=['selfcheck'];bad.find(n=>n.nodeId==='selfcheck').condition=['nsfw'];assert.throws(()=>validatePromptTree(bad),/循环/);
 });
-
-test('default tree composes plain text, one parameter block and fixed shells without metadata or macros',()=>{
- const config=defaultPromptSettings(),before=structuredClone(config),text=composePrompt(config);
- assert.equal(config.version,2);assert.deepEqual(config,defaultTreeSettings());assert.equal(config.enabledById['output.subtitle'],false);
- assert.equal((text.match(/<imageTag>/g)||[]).length,1);assert.equal((text.match(/<\/imageTag>/g)||[]).length,1);
- assert.equal((text.match(/User：ELLA/g)||[]).length,1);assert.equal((text.match(/彩蛋应生成在\/meow_FM后/g)||[]).length,1);
- assert.ok(text.startsWith('---\n\n<imageTag>\n\n'));assert.ok(text.endsWith('</imageTag>\n\n---'));
- assert.ok(!/\{\{(?:setvar|getvar|setglobalvar|getglobalvar|insert|slot)/.test(text));assert.ok(!text.includes('parentId'));assert.ok(!text.includes('04.EGG'));
- assert.ok(!text.includes('完成彩蛋任务。'));assert.ok(text.indexOf(treeById.composition.slots.body)<text.indexOf(treeById.egg.slots.body));assert.ok(text.indexOf(treeById.egg.slots.body)<text.indexOf(treeById['tags.full'].slots.body));assert.ok(text.indexOf('## 自检')<text.indexOf('## 图片标准格式为:'));
- assert.equal(composePrompt(config),text);assert.deepEqual(config,before);
- const other=defaultPromptSettings();other.params.persona='OTHER';assert.ok(composePrompt(other).includes('User：OTHER'));assert.equal(composePrompt(config),text);
- // Incoming settings cannot replace, reorder or insert registry nodes.
- assert.equal(composePrompt({...config,nodes:[{body:'UNTRUSTED'}],children:['output','task']}),text);
-});
-
-test('all parent/egg/check/orientation combinations obey effective state without altering saved choices',()=>{
- const ids=['composition','egg','egg.description','selfcheck','nsfw','output.subtitle'];
- for(let bits=0;bits<64;bits++)for(const orientation of ['','BG','BL','GL','INTERSEX']){
-  let c=defaultPromptSettings();ids.forEach((id,i)=>{c=withTreeEnabled(c,id,!!(bits&(1<<i)));});c.orientation=orientation;
-  const before=structuredClone(c),text=composePrompt(c,{nsfwMatched:true}),egg=c.enabledById.composition&&c.enabledById.egg,check=c.enabledById.selfcheck;
-  assert.equal(text.includes(treeById.egg.slots.body),egg);assert.equal(text.includes('<easter_egg>'),egg&&c.enabledById['egg.description']);
-  assert.equal(text.includes(treeById['selfcheck.egg'].slots.body),egg&&check);
-  assert.equal(text.includes(treeById.selfcheck.slots.prefix),check);assert.equal(text.includes('\n\n</imgthink>\n\n'),check);
-  assert.equal(text.includes(treeById['output.selfcheck'].slots.body),check);assert.equal(text.includes(treeById['selfcheck.nsfw'].slots.body),check&&c.enabledById.nsfw);
-  assert.equal(text.includes(treeById['nsfw.rules'].slots.body),c.enabledById.nsfw);assert.equal(text.includes(treeById['output.subtitle'].slots.body),c.enabledById['output.subtitle']);
-  for(const choice of ['BG','BL','GL','INTERSEX'])assert.equal(text.includes(treeById['orientation.'+choice.toLowerCase()].slots.body),c.enabledById.nsfw&&orientation===choice);
-  if(c.enabledById.nsfw&&check)assert.ok(text.indexOf('15.NSFW:')<text.indexOf('## 自检'));
-  assert.deepEqual(c,before);
+test('base flags, parent state, choices and per-round NSFW jointly govern runtime without mutation',()=>{
+ for(let bits=0;bits<256;bits++)for(const mode of ['full','binding'])for(const orientation of ['','BG','BL','GL','INTERSEX']){
+  const c=defaultTreeSettings();const [fan,egg,composition,tags,check,nsfw,matched,description]=Array.from({length:8},(_,i)=>!!(bits&(1<<i)));c.flags.fan=fan;c.tagMode=mode;c.orientation=orientation;Object.assign(c.enabledById,{egg,composition,tags,selfcheck:check,nsfw,'egg.description':description});
+  const before=structuredClone(c),text=composePrompt(c,{nsfwMatched:matched,bindingRoster:'FIXTURE_ROSTER'}),eggActive=egg&&composition;
+  for(const [id,expected] of [['tags.fan',fan&&tags],['tags.egg',eggActive&&tags],['selfcheck.fan',fan&&check],['selfcheck.egg',eggActive&&check],['egg.description',eggActive&&description],['nsfw',nsfw&&matched],['selfcheck.nsfw',nsfw&&matched&&check]])assert.equal(text.includes(treeById[id].slots.body),expected,id);
+  assert.equal(text.includes('以及彩蛋插图 1 张'),eggActive);assert.equal(text.includes('（这里`'),false);
+  assert.equal(text.includes('FIXTURE_ROSTER'),tags&&mode==='binding');
+  for(const value of ['BG','BL','GL','INTERSEX'])assert.equal(text.includes(treeById['orientation.'+value.toLowerCase()].slots.body),nsfw&&matched&&value===orientation);
+  assert.equal(text.includes(treeById['selfcheck.roles.'+mode].slots.body),check);assert.deepEqual(c,before);
  }
 });
-
-test('individual switches, sparse overrides and unknown macros survive parent toggling',()=>{
- let c=withTreeText(defaultPromptSettings(),'egg.description',{body:'CUSTOM {{user}} {{getvar::unknown}}'});
- const overrides=structuredClone(c.textOverridesById);c=withTreeEnabled(c,'egg',false);assert.equal(effectiveEnabled(c,'egg.description'),false);assert.equal(savedEnabled(c,'egg.description'),true);assert.deepEqual(c.textOverridesById,overrides);
- c=withTreeEnabled(c,'egg',true);assert.ok(composePrompt(c).includes('CUSTOM {{user}} {{getvar::unknown}}'));
- c=withTreeText(c,'egg.description',{body:treeById['egg.description'].slots.body});assert.deepEqual(c.textOverridesById,{});
- for(const node of promptTree.filter(n=>n.toggleable)){
-  const toggled=withTreeEnabled(defaultPromptSettings(),node.nodeId,false);assert.equal(effectiveEnabled(toggled,node.nodeId),false);if(node.slots.body)assert.ok(!composePrompt(toggled).includes(node.slots.body));
- }
- assert.throws(()=>withTreeEnabled(c,'output.format',false));assert.throws(()=>withTreeText(c,'egg',{prefix:'unknown'}));assert.throws(()=>withTreeText(c,'composition',{body:'<imageTag>'}));assert.throws(()=>withTreeText(c,'composition',{body:'x'.repeat(100001)}));assert.throws(()=>composePrompt({...c,orientation:'all'}));
- assert.throws(()=>withTreeText(c,'selfcheck',{suffix:''}),/成对/);
+test('fixed task is enforced on updates and imports; previews interpolate without changing source',()=>{
+ const c=defaultTreeSettings(),source=treeById.task.slots.body;c.params.count='4';c.params.eggMarker='/FIXTURE';const text=composePrompt(c);assert.ok(text.includes('数量为 4 张'));assert.ok(text.includes('/FIXTURE 标记之后'));assert.equal(treeById.task.slots.body,source);
+ assert.throws(()=>withTreeText(c,'task',{body:'OVERRIDE'}),/不可编辑/);assert.throws(()=>composePrompt({...c,textOverridesById:{task:{body:'IMPORT'}}}),/不可编辑/);assert.throws(()=>withTreeEnabled(c,'task',false));
+ let next=withTreeEnabled(c,'egg.description',false);next=withTreeEnabled(next,'egg',false);next=withTreeEnabled(next,'egg',true);assert.equal(effectiveEnabled(next,'egg.description'),false);
+ const custom=withTreeText(c,'composition',{body:'CUSTOM {{user}}'});assert.ok(composePrompt(custom).includes('CUSTOM {{user}}'));assert.equal(treeText(withTreeText(custom,'composition',treeById.composition.slots),'composition'),treeById.composition.slots.body);
+});
+test('migration preserves exact old payload, choice and custom semantics; retired text blocks migration and keeps the original payload',()=>{
+ const old=revision4Settings();old.enabledById['task.fan']=false;old.enabledById['egg.description']=false;old.enabledById['nsfw.rules']=false;old.enabledById.nsfw=true;old.tagMode='binding';old.orientation='BL';old.nsfwTrigger.keywords=[];old.textOverridesById={'nsfw.rules':{body:'CUSTOM RULE'},composition:{body:'CUSTOM SCENE'}};
+ const before=structuredClone(old),next=migrateTreeSettings(old);assert.deepEqual(old,before);assert.equal(next.migrationArchive,undefined);assert.equal(next.flags.fan,false);assert.equal(next.enabledById.nsfw,false);assert.equal(next.enabledById['egg.description'],false);assert.equal(next.tagMode,'binding');assert.equal(next.orientation,'BL');assert.deepEqual(next.nsfwTrigger.keywords,[]);assert.equal(next.textOverridesById.nsfw.body,'CUSTOM RULE');assert.equal(next.textOverridesById.composition.body,'CUSTOM SCENE');assert.equal(migrateTreeSettings(next),next);
+ old.textOverridesById.task={prefix:'CUSTOM TASK'};old.textOverridesById['selfcheck.item3']={body:'RETIRED CHECK'};assert.throws(()=>migrateTreeSettings(old),e=>e.status==='migration-conflict');assert.deepEqual(old.textOverridesById.task,{prefix:'CUSTOM TASK'});assert.deepEqual(old.textOverridesById['selfcheck.item3'],{body:'RETIRED CHECK'});
+ const unknown={...old,treeRevision:99};assert.throws(()=>migrateTreeSettings(unknown));
+});
+test('fixed macros expose only count and marker and the cache resolves a stable parameter ID',async()=>{
+ let c=defaultTreeSettings();const snap=fixedMacroSnapshot(c);assert.deepEqual(snap.macros.map(n=>n.id),['count','eggMarker']);c=updateFixedMacros(c,snap,{count:'3',eggMarker:'/NEW'});assert.equal(c.params.count,'3');const cache=createEggMarkerCache({read:()=>fixedMacroSnapshot(c),key:()=>c.params.eggMarker});assert.equal(await cache.read(),'/NEW');
+});
+test('output is a single continuous format and selfcheck formats close as a pair',()=>{
+ const c=defaultTreeSettings();c.enabledById['output.subtitle']=true;assert.ok(composePrompt(c).includes('【每个配图的正确完整格式】\n<imgthink>\n与当前画面对应的思考过程。\n</imgthink>\n┈┈[胡里花哨的符号+本次绘画的主题文字+可爱颜文字]┈┈\nimage###\n[图片tag]\n###'));
+ const off=withTreeEnabled(c,'selfcheck',false);assert.ok(!composePrompt(off).includes('<imgthink>'));assert.throws(()=>withTreeText(c,'selfcheck',{suffix:''}),/成对/);
 });
 
-test('v1 defaults convert once; unsplittable custom documents stay untouched and blocked',()=>{
- const c=defaultLegacyPromptSettings('external');c.fixed.人格='{{user}}';c.modules.selfCheck=false;const original=structuredClone(c),next=migrateTreeSettings(c);assert.equal(next.version,2);assert.equal(next.params.persona,'{{user}}');assert.equal(next.mode,'external');assert.equal(next.enabledById.selfcheck,false);assert.equal(next.legacyBackup,undefined);assert.deepEqual(c,original);assert.equal(migrateTreeSettings(next),next);
- const custom={...c,overrides:{main:'CUSTOM WHOLE BODY'}};const before=structuredClone(custom);assert.throws(()=>migrateTreeSettings(custom),/无法无损/);assert.deepEqual(custom,before);assert.throws(()=>composePrompt(custom));
-});
-
-test('ordinary parameter saving, marker cache and warnings share the same values',async()=>{
- let c=defaultPromptSettings();const snap=fixedMacroSnapshot(c);assert.equal(snap.version,2);assert.equal(snap.macros.length,4);
- c=updateFixedMacros(c,snap,{persona:'{{user}}',eggMarker:'/fixture'});assert.ok(composePrompt(c).includes('User：{{user}}'));assert.ok(!composePrompt(c).includes('{{setvar'));
- const cache=createEggMarkerCache({read:()=>fixedMacroSnapshot(c),key:()=>c.params.eggMarker});assert.equal(await cache.read(),'/fixture');c={...c,params:{...c.params,eggMarker:'/new'}};assert.equal(await cache.read(),'/new');
- assert.ok(promptWarnings(c,'custom','END').some(s=>s.includes('不一致')));assert.ok(promptWarnings(c,'image###','###').some(s=>s.includes('宏')));assert.deepEqual(promptWarnings(defaultPromptSettings(),'image###','###'),[]);
- const customFormat=withTreeText(defaultPromptSettings(),'output.format',{body:'CUSTOM_START\n[prompt]\nCUSTOM_END'});assert.ok(promptWarnings(customFormat,'image###','###').some(s=>s.includes('图片标签结构已自定义')));
-});
-
-test('D0 uses a single synchronous ID, clears external/disabled and can roll back a failed save',()=>{
- const calls=[],settings={enabled:true,promptConfig:defaultPromptSettings()};
- const injection=createPromptInjection({settings,context:()=>({setExtensionPrompt:(...args)=>calls.push(args)}),onError:()=>{}});
- const original=settings.promptConfig,text=injection.update();settings.promptConfig=withTreeText(original,'composition',{body:'edited'});assert.ok(injection.update().includes('edited'));settings.promptConfig=original;assert.equal(injection.update(),text);
- settings.promptConfig={...original,mode:'external'};assert.equal(injection.update(),'');settings.promptConfig=original;settings.enabled=false;assert.equal(injection.update(),'');
- assert.ok(calls.every(call=>call[0]===PROMPT_ID&&JSON.stringify(call.slice(2))==='[1,0,false,0]'));
-});
-
-test('NSFW check preserves saved state and text behind conditions; registry rejects dependency cycles',()=>{
- const n=treeById['selfcheck.nsfw'];assert.equal(n.displayId,'04.NSFW');assert.equal(n.label,'色图额外检查');assert.deepEqual(n.condition,['nsfw']);assert.equal(n.parentId,'selfcheck');assert.equal(n.toggleable,false);
- let c=withTreeText(defaultPromptSettings(),'selfcheck.nsfw',{body:'SAVED_NSFW_CHECK'});assert.equal(effectiveEnabled(c,n.nodeId),false);
- c=withTreeEnabled(c,'nsfw',true);assert.equal(effectiveEnabled(c,n.nodeId),true);assert.equal(composePrompt(c,{nsfwMatched:true}).split('SAVED_NSFW_CHECK').length,2);
- for(const parent of ['nsfw','selfcheck']){const off=withTreeEnabled(c,parent,false);assert.equal(effectiveEnabled(off,n.nodeId),false);assert.equal(savedEnabled(off,n.nodeId),true);assert.equal(treeText(off,n.nodeId),'SAVED_NSFW_CHECK');assert.equal(effectiveEnabled(withTreeEnabled(off,parent,true),n.nodeId),true);}
- assert.throws(()=>withTreeEnabled(c,n.nodeId,false));assert.equal(treeText(c,n.nodeId),'SAVED_NSFW_CHECK');
- const invalid=structuredClone(promptTree);invalid.find(n=>n.nodeId==='nsfw').condition=['missing'];assert.throws(()=>validatePromptTree(invalid));
- for(const condition of [['selfcheck'],['nsfw']]){const cyclic=structuredClone(promptTree);cyclic.find(n=>n.nodeId==='nsfw').condition=condition;if(condition[0]==='selfcheck')cyclic.find(n=>n.nodeId==='selfcheck').condition=['nsfw'];assert.throws(()=>validatePromptTree(cyclic),/循环/);}
- assert.equal(validatePromptTree(structuredClone(promptTree)),true);
-});
-
-test('revised task sentence and continuous output format match the requested text',()=>{
- const c=defaultPromptSettings();c.params={persona:'PERSONA',target:'TARGET',count:'3',eggMarker:'/EGG'};c.enabledById['output.subtitle']=true;
- const text=composePrompt(c);
- assert.ok(text.includes('TARGET：PERSONA，这是附加的剧情配图任务，必须按照以下计划分步骤完成。本次正文插图数量为3张，以及彩蛋插图1张，彩蛋应生成在/EGG后。'));
- assert.ok(composePrompt(withTreeEnabled(c,'egg',false)).includes('本次正文插图数量为3张。'));
- const expected='## 图片标准格式为:\n在相应画面生成 tag 之前，输出一段完整的 `<imgthink>` 思考过程，并与当前画面一一对应。\n┈┈[胡里花哨的符号+本次绘画的主题文字+可爱颜文字]┈┈\nimage###\n[图片tag]\n###';
- assert.ok(text.includes(expected));assert.equal(text.split('## 图片标准格式为:').length,2);assert.ok(!text.includes('如启用自检：'));assert.ok(!text.includes('(1.角色模板 2.著名ACGN角色)'));assert.ok(!text.includes('5.NSFW环节重点刻画'));
-});
-test('tree revision migration preserves retired text and choices without keeping obsolete controls',()=>{
- const old=defaultPromptSettings();delete old.treeRevision;old.enabledById['tags.rules']=false;old.enabledById['selfcheck.nsfw']=false;
- old.textOverridesById={'tags.rules':{body:'CUSTOM TAGS'},egg:{body:'CUSTOM EGG',suffix:'CUSTOM END'},'selfcheck.nsfw':{body:'CUSTOM CHECK'}};
- const original=structuredClone(old),next=migrateTreeSettings(old);assert.deepEqual(old,original);assert.equal(next.treeBackup,undefined);assert.ok(next.textOverridesById.egg.body.endsWith('CUSTOM END'));assert.equal(next.enabledById.tags,false);assert.equal(next.enabledById['selfcheck.nsfw'],undefined);assert.equal(next.textOverridesById['tags.full'].body,'CUSTOM TAGS');assert.ok(next.textOverridesById.egg.body.startsWith('CUSTOM EGG'));assert.equal(next.textOverridesById.egg.suffix,undefined);assert.equal(next.textOverridesById['selfcheck.nsfw'].body,'CUSTOM CHECK');assert.equal(migrateTreeSettings(next),next);
-});
-
-test('NAI pipe defaults keep structural shells and user overrides while checking character ownership',()=>{
- // Hash changes are limited to the approved multi-character template nodes;
- // the registry hash test above continues to cover every untouched slot.
- for(const id of ['composition','egg','tags.full','nsfw.rules','selfcheck.item2','selfcheck.item8','selfcheck.item9','output.format'])assert.ok(treeById[id].slots.body.includes('|'),id);
- for(const id of ['composition','egg','tags.full','nsfw.rules','selfcheck.item9'])assert.ok(!/独立括号|括号包裹|\n\((?:CharacterA|CharacterB|girlA|Name):1\.2/.test(treeById[id].slots.body),id);
- assert.ok(treeById['tags.full'].slots.body.includes('1.5::English Name::'));assert.ok(treeById['tags.full'].slots.body.includes('source#'));assert.ok(treeById['selfcheck.total'].slots.body.includes('角色段数量'));
- assert.ok(treeById['output.format'].slots.body.startsWith('image###\n[图片tag]\n###'));
- const old='MY OLD (Name:1.2, ...) CUSTOM';let c=withTreeText(defaultPromptSettings(),'composition',{body:old});const before=structuredClone(c.textOverridesById);
- c=migrateTreeSettings(JSON.parse(JSON.stringify(c)));assert.deepEqual(c.textOverridesById,before);assert.equal(treeText(c,'composition'),old);assert.ok(composePrompt(c).includes(old));
- c=withTreeText(c,'composition',{body:treeById.composition.slots.body});assert.equal(c.textOverridesById.composition,undefined);
+test('old order is normalized without resetting nonzero depth and historical fields stay passive',async()=>{
+ const {promptConfigForComparison}=await import('../src/prompts/tree-settings.js'),old=defaultTreeSettings();old.injection={depth:7,order:888};old.migrationArchive={fixture:'passive legacy value'};const before=structuredClone(old),next=migrateTreeSettings(old);assert.deepEqual(old,before);assert.deepEqual(next.injection,{depth:7});assert.deepEqual(next.migrationArchive,old.migrationArchive);assert.equal(promptConfigForComparison(next).migrationArchive,undefined);assert.equal(migrateTreeSettings(next),next);
+ const custom=revision4Settings();custom.params.persona='CUSTOM_PERSONA';const untouched=structuredClone(custom);assert.throws(()=>migrateTreeSettings(custom),/params.persona/);assert.deepEqual(custom,untouched);
 });

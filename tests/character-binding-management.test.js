@@ -39,15 +39,15 @@ test('legacy normalization collisions and swallowed card saves block migration w
 test('upload interruption is confirmed by read-back without search summary writes',async()=>{
  const f=managementFixture();f.uploadThenThrow=true;const {entry}=await saved(f);assert.equal(entry.archive.bindings.length,1);assert.ok(![...f.files.keys()].some(k=>k.includes('summary-v2')));
 });
-test('current chat saves detect swallowed writes and preserve unknown metadata',async()=>{
+test('current sidecar saves detect swallowed file writes and preserve all chat metadata',async()=>{
  const f=managementFixture(),{entry}=await saved(f),ref=f.chatSettings.current();f.context.chatMetadata.unknown={preserved:true};await f.context.saveChat();const state=await f.chatSettings.read(ref),row=f.chatSettings.rows(state)[0],key=bindingSwitchKey(row.owner,row);
- f.swallowMetadata=true;await assert.rejects(f.chatSettings.save(state,{[key]:false}),/读回内容不一致/);f.swallowMetadata=false;
+ f.swallowUpload=true;await assert.rejects(f.chatSettings.save(state,{[key]:false}),/读回确认/);f.swallowUpload=false;
  const reread=await f.chatSettings.read(ref),savedState=await f.chatSettings.save(reread,{[key]:false});assert.equal(savedState.settings.values[key],false);assert.equal(savedState.metadata.unknown.preserved,true);assert.ok(!JSON.stringify(savedState.settings).includes(fields.positive));
 });
-test('ST non-current save opens exactly selected card/chat; busy hosts never switch',async()=>{
+test('ST directed sidecar save never changes the current card or chat',async()=>{
  const f=managementFixture(),{target}=await saved(f,1);f.storeChat(target.locator,'chat-b',{integrity:'fixture-b'});const ref={target,fileName:'chat-b'},state=await f.chatSettings.read(ref);assert.equal(f.context.characterId,0);assert.equal(state.persona,null);
  f.busy=true;await assert.rejects(f.chatSettings.save(state,{}),/正在生成或保存/);assert.equal(f.context.characterId,0);f.busy=false;
- await f.chatSettings.save(state,{});assert.equal(f.context.characters[f.context.characterId].avatar,target.locator);assert.equal(f.context.chatId,'chat-b');
+ await f.chatSettings.save(state,{});assert.equal(f.context.characterId,0);assert.equal(f.context.chatId,'chat-a');
 });
 test('bounded chat reader cancels after header and refuses malformed or oversized objects',async()=>{
  let cancelled=false,pulls=0;const stream=new ReadableStream({pull(c){pulls++;c.enqueue(new TextEncoder().encode(pulls===1?'[{"chat_metadata":{"integrity":"x"}},':'{"mes":"never materialized"},'));},cancel(){cancelled=true;}});
@@ -111,7 +111,7 @@ test('chat rename retains chat UUID and explicit overrides; copied chat forks id
  const f=managementFixture();await saved(f);let state=await f.chatSettings.read(f.chatSettings.current()),row=f.chatSettings.rows(state)[0];state=await f.chatSettings.save(state,{[bindingSwitchKey(row.owner,row)]:false});const uuid=state.settings.chatUuid;
  f.chats.set(f.chatKey('card-0.png','renamed'),f.chats.get(f.chatKey('card-0.png','chat-a')));f.chats.delete(f.chatKey('card-0.png','chat-a'));f.context.chatId='renamed';await f.host.emit({name:'CHAT_RENAMED',type:'card',locator:'card-0.png',oldChatFile:'chat-a',chatFile:'renamed'});
  const renamed=await f.chatSettings.read(f.chatSettings.current());assert.equal(renamed.settings.chatUuid,uuid);assert.equal(renamed.collision,false);assert.equal(f.chatSettings.rows(renamed)[0].enabled,false);
- f.storeChat('card-0.png','copy',renamed.metadata);const copy=await f.chatSettings.read({target:renamed.ref.target,cardOwnerId:renamed.ref.cardOwnerId,fileName:'copy'});assert.equal(copy.collision,true);const savedCopy=await f.chatSettings.save(copy,{});assert.notEqual(savedCopy.settings.chatUuid,uuid);assert.equal(f.chatSettings.rows(savedCopy)[0].enabled,false);
+ f.storeChat('card-0.png','copy',renamed.metadata);const copy=await f.chatSettings.read({target:renamed.ref.target,cardOwnerId:renamed.ref.cardOwnerId,fileName:'copy'});assert.notEqual(copy.settings.chatUuid,uuid);const savedCopy=await f.chatSettings.save(copy,{});assert.notEqual(savedCopy.settings.chatUuid,uuid);assert.equal(f.chatSettings.rows(savedCopy)[0].enabled,true);
 });
 test('fresh retry uses the same drafted binding UUID and never replaces an archive created meanwhile',async()=>{
  const f=managementFixture(),target=(await f.management.list('card'))[0],draft=await f.management.open(target),uuid='00000000-0000-4000-8000-000000000123',a=editBinding(draft.archive,fields,undefined,{newUuid:uuid});assert.equal(a.bindings[0].uuid,uuid);assert.equal(editBinding(draft.archive,fields,undefined,{newUuid:uuid}).bindings[0].uuid,uuid);
@@ -148,16 +148,11 @@ test('old empty and saved owner drafts cannot publish into a changed account',as
  await assert.rejects(f.management.save(empty,editBinding(empty.archive,fields)),/账户/);await assert.rejects(f.management.save(entry,editBinding(entry.archive,{name:'Do not transfer'},entry.archive.bindings[0].uuid)),/账户/);assert.equal(writes(),before);
 });
 
-test('automatic save forbids implicit ST navigation, including target changes while queued',async()=>{
+test('non-current sidecar stays directed when the current chat changes during queueing',async()=>{
  const f=managementFixture(),{target}=await saved(f,1);f.storeChat(target.locator,'offline',{integrity:'offline',unrelated:{keep:true}});
- const state=await f.chatSettings.read({target,fileName:'offline'}),row=f.chatSettings.rows(state)[0],key=bindingSwitchKey(row.owner,row);
- assert.equal(f.chatSettings.writable(state.ref),false);
- const before=f.requests.length;await assert.rejects(f.chatSettings.save(state,{[key]:false},{allowOpen:false}),/打开此聊天/);
- assert.equal(f.context.characterId,0);assert.equal(f.context.chatId,'chat-a');assert.equal(f.requests.slice(before).some(r=>r.url.includes('save')),false);
- await f.chatSettings.openChat(state.ref);assert.equal(f.context.characterId,1);assert.equal(f.context.chatId,'offline');assert.equal(f.chats.get(f.chatKey(target.locator,'offline'))[0].chat_metadata.extensions,undefined);
- const fresh=await f.chatSettings.read(state.ref);assert.equal(f.chatSettings.writable(fresh.ref),true);
- const job=f.chatSettings.save(fresh,{[key]:false},{allowOpen:false});f.context.characterId=0;f.context.chatId='chat-a';
- await assert.rejects(job,/打开此聊天/);assert.equal(f.context.characterId,0);assert.equal(f.chats.get(f.chatKey(target.locator,'offline'))[0].chat_metadata.extensions,undefined);
+ const state=await f.chatSettings.read({target,fileName:'offline'}),row=f.chatSettings.rows(state)[0],key=bindingSwitchKey(row.owner,row);assert.equal(f.chatSettings.writable(state.ref),true);
+ const before=JSON.stringify([...f.chats]);const job=f.chatSettings.save(state,{[key]:false},{allowOpen:false});f.context.chatId='chat-c';await job;assert.equal(f.context.characterId,0);assert.equal(f.context.chatId,'chat-c');assert.equal(JSON.stringify([...f.chats]),before);
+ const fresh=await f.chatSettings.read(state.ref);assert.equal(f.chatSettings.rows(fresh)[0].enabled,false);await f.context.selectCharacterById(1);await f.context.openCharacterChat('offline');assert.equal((await f.chatSettings.effectiveMetadata(fresh.entries)).extensions.meow_t2i_bindings.values[key],false);
 });
 test('explicit chat boolean survives equal defaults while inherit removes only its exact key',async()=>{
  const f=managementFixture(),{entry}=await saved(f),ref=f.chatSettings.current(),state=await f.chatSettings.read(ref),row=f.chatSettings.rows(state)[0],key=bindingSwitchKey(row.owner,row);
@@ -187,5 +182,16 @@ test('latest generation waits for v2 owner save confirmation and refuses another
  const saving=f.management.save(entry,editBinding(entry.archive,{positive:'LATEST POSITIVE',negative:'LATEST UC'},entry.archive.bindings[0].uuid));await begun;
  let resolved=false;const preparing=session.resolveLatest(m,b).then(rows=>{resolved=true;return rows;});await new Promise(resolve=>setTimeout(resolve,10));assert.equal(resolved,false);release();await saving;
  const latest=await preparing;assert.equal(latest[0].negative,'LATEST UC');assert.equal(latest[0].positive,'LATEST POSITIVE');assert.equal(frozen[0].negative,fields.negative);
- f.context.characterId=1;await assert.rejects(session.resolveLatest(m,b),/身份无法验证/);assert.equal(other.entry.archive.bindings[0].shortId,'C01');
+ f.storeChat('card-1.png','chat-a',{integrity:'other-card-chat'});f.context.characterId=1;await assert.rejects(session.resolveLatest(m,b),/身份无法验证/);assert.equal(other.entry.archive.bindings[0].shortId,'C01');
+});
+
+test('sidecar inherit masks legacy metadata and concurrent writers conflict without changing runtime or chat messages',async()=>{
+ const f=managementFixture(),{entry}=await saved(f),row=entry.archive.bindings[0],key=bindingSwitchKey(entry.archive.owner,row),meta=f.context.chatMetadata;meta.extensions={[BINDING_NAMESPACE]:{schemaVersion:2,chatUuid:'11111111-1111-4111-8111-111111111111',values:{[key]:false}}};await f.context.saveChat();const ref=f.chatSettings.current(),a=await f.chatSettings.read(ref),b=await f.chatSettings.read(ref),before=JSON.stringify([...f.chats]);assert.equal(f.chatSettings.rows(a)[0].enabled,false);
+ const inherit=await f.chatSettings.save(a,{[key]:'inherit'});assert.equal(f.chatSettings.rows(inherit)[0].enabled,true);assert.equal(f.context.chatMetadata.extensions[BINDING_NAMESPACE].values[key],false);assert.equal((await f.chatSettings.effectiveMetadata(inherit.entries)).extensions[BINDING_NAMESPACE].values[key],undefined);await assert.rejects(f.chatSettings.save(b,{[key]:false}),e=>e.saveState==='conflict');assert.equal(JSON.stringify([...f.chats]),before);assert.equal(f.chatSettings.rows(await f.chatSettings.read(ref))[0].enabled,true);
+});
+test('deleted targets, ambiguous external renames and replacement chats never inherit stale sidecar switches',async()=>{
+ const f=managementFixture(),{entry}=await saved(f),key=bindingSwitchKey(entry.archive.owner,entry.archive.bindings[0]);let state=await f.chatSettings.read(f.chatSettings.current());state=await f.chatSettings.save(state,{[key]:false});const oldId=state.settings.chatUuid;
+ const original=f.chats.get(f.chatKey('card-0.png','chat-a'));f.chats.delete(f.chatKey('card-0.png','chat-a'));await assert.rejects(f.chatSettings.save(state,{[key]:true}),/删除或改名|格式异常/);
+ f.chats.set(f.chatKey('card-0.png','elsewhere'),original);await assert.rejects(f.chatSettings.read({...state.ref,fileName:'elsewhere'}),/身份尚未确认/);
+ f.chats.delete(f.chatKey('card-0.png','elsewhere'));await f.host.emit({name:'CHAT_DELETED',chatFile:'chat-a'});f.chats.set(f.chatKey('card-0.png','chat-a'),original);const replacement=await f.chatSettings.save(await f.chatSettings.read(state.ref),{});assert.notEqual(replacement.settings.chatUuid,oldId);assert.equal(f.chatSettings.rows(replacement)[0].enabled,true);
 });

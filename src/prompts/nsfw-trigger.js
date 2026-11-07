@@ -1,5 +1,7 @@
 // Literal, deterministic matching. Never scan assembled prompts or recurse.
-export const defaultNsfwKeywords = Object.freeze(['NSFW','色情','色色','肉棒','小逼','牛子','操','做爱','上床','喘息']);
+export const legacyNsfwKeywords = Object.freeze(['NSFW','色情','色色','肉棒','小逼','牛子','操','做爱','上床','喘息']);
+// Default list transcribed from the supplied reference image.
+export const defaultNsfwKeywords = Object.freeze(["做爱", "上床", "插入", "口交", "内射", "高潮", "前戏", "自慰", "勃起", "脱光", "含住", "骑上", "湿了", "硬了", "瑟瑟", "涩涩", "色色", "nsfw", "鸡巴", "小穴", "阴道", "小逼", "尿", "阴蒂", "淫水", "爱液", "后穴", "精液", "阴唇", "子宫", "宫口", "屁眼", "G点", "阴茎", "肉棒", "性爱", "缠结", "圆房", "行房", "性交", "肉便器", "操弄", "泄欲", "花穴", "奸"]);
 export function validateNsfwKeywords(keywords) {
     if (!Array.isArray(keywords) || keywords.length > 64) throw Error('触发关键词需为最多 64 个标签的列表');
     const seen = new Set();

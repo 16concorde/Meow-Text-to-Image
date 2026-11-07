@@ -19,7 +19,7 @@ export function managementFixture({cards=2,users=2}={}){
         if(url==='/api/files/upload'){
             if(f.onUpload)await f.onUpload(body);
             if(f.failUpload||f.failSummary&&body.name.startsWith('miao-character-summary'))return new Response('',{status:500});
-            const text=new TextDecoder().decode(Uint8Array.from(atob(body.data),c=>c.charCodeAt(0)));f.files.set('/user/files/'+body.name,text);if(f.uploadThenThrow)throw Error('mock interrupted after commit');return Response.json({path:'/user/files/'+body.name});
+            const text=new TextDecoder().decode(Uint8Array.from(atob(body.data),c=>c.charCodeAt(0)));if(!f.swallowUpload)f.files.set('/user/files/'+body.name,text);if(f.uploadThenThrow)throw Error('mock interrupted after commit');return Response.json({path:'/user/files/'+body.name});
         }
         if(url==='/api/characters/get')return f.cards.has(body.avatar_url)?Response.json(f.cards.get(body.avatar_url)):new Response('',{status:404});
         if(url==='/api/characters/merge-attributes'){const card=f.cards.get(body.avatar);if(!card)return new Response('',{status:404});if(!f.swallowCard)card.data.extensions.meow_t2i=body.data.extensions.meow_t2i;return Response.json({ok:true});}

@@ -18,34 +18,34 @@ test('actual binding UI, D0, chat switches and complete ungenerated history on d
    await page.route('**/fixture-nai.zip',route=>route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=','base64')}));
    await page.goto(url+'/?settings-smoke'+(mobile?'&tt':''));await page.locator('#miao-nai-menu').waitFor();
    await page.evaluate(async()=>{
-    const p=window.preview,c=p.context;c.characterId=0;c.characters=[{avatar:'fixture-card.png',name:'Fixture Card'}];c.name1='Fixture User';c.chatMetadata={};c.saveMetadataDebounced=()=>{};c.powerUserSettings.personas={'fixture-persona.png':'Fixture User'};c.powerUserSettings.persona_descriptions={'fixture-persona.png':{title:'Fixture Remark'}};c.getThumbnailUrl=(type,file)=>'/thumbnail?type='+type+'&file='+encodeURIComponent(file);c.saveChat=async()=>{if(p.failChatSave)throw Error('mock save failed');(p.bindingDiskChats??={})[JSON.stringify([c.characters[c.characterId].avatar,p.chatId])]=structuredClone([{chat_metadata:c.chatMetadata},...p.chat]);};c.saveMetadata=async()=>{p.metadataSaves=(p.metadataSaves||0)+1;await c.saveChat();return true;};await c.saveChat();
+    const p=window.preview,c=p.context;c.characterId=0;c.characters=[{avatar:'fixture-card.png',name:'Fixture Card'}];c.name1='Fixture User';c.chatMetadata={integrity:'fixture-binding-chat'};c.saveMetadataDebounced=()=>{};c.powerUserSettings.personas={'fixture-persona.png':'Fixture User'};c.powerUserSettings.persona_descriptions={'fixture-persona.png':{title:'Fixture Remark'}};c.getThumbnailUrl=(type,file)=>'/thumbnail?type='+type+'&file='+encodeURIComponent(file);c.saveChat=async()=>{if(p.failChatSave)throw Error('mock save failed');(p.bindingDiskChats??={})[JSON.stringify([c.characters[c.characterId].avatar,p.chatId])]=structuredClone([{chat_metadata:c.chatMetadata},...p.chat]);};c.saveMetadata=async()=>{p.metadataSaves=(p.metadataSaves||0)+1;await c.saveChat();return true;};await c.saveChat();
     const personas=await import('/scripts/personas.js');personas.setAvatar('fixture-persona.png');await p.emit('PERSONA_CHANGED');
    });
    await page.locator('#miao-nai-menu').click();
    const go=async label=>{if(mobile){while(await page.locator('.miao-settings').getAttribute('data-section')!=='overview'){await page.locator('.miao-drawer-back').click();await page.waitForTimeout(10);}await page.locator(`.miao-overview-row[aria-label="${label}"]`).click();}else await page.locator('.miao-tabs').getByRole('button',{name:label,exact:true}).click();};
-   const button=label=>page.getByRole('button',{name:label,exact:true}),view=page.locator('.miao-character-bindings');
-   await go('生成');await page.locator('input[type=password]').fill('fixture-character-binding-key-not-real');await button('保存密钥').click();await page.waitForFunction(()=>window.preview.settings.keyHash?.length===64);
-   const home=async()=>{while(!await button('角色管理').isVisible()){await page.locator('.miao-drawer-back').click();await page.waitForTimeout(30);}};
+   const view=page.locator('.miao-character-bindings'),button=label=>(label==='角色管理'?view:page).getByRole('button',{name:label,exact:true});
+   await go('生成');await page.locator('input[type=password]').fill('fixture-character-binding-key-not-real');await page.locator('.miao-settings').evaluate(n=>n.flush());await page.waitForFunction(()=>window.preview.settings.keyHash?.length===64);
+   const home=async()=>{while(!await button('角色管理').isVisible()){const history=await view.evaluate(n=>n.diagnostics().history);assert.ok(history>0,'返回管理首页时仍在绑定页内部');await page.locator('.miao-drawer-back').click();await page.waitForFunction(history=>document.querySelector('.miao-character-bindings')?.diagnostics().history<history,history);}await button('角色管理').waitFor({state:'visible'});};
    const manage=async type=>{await home();await button(type==='card'?'角色管理':'用户设定管理').click();await view.locator('.miao-owner-row').first().click();await view.getByRole('button',{name:'添加绑定角色',exact:true}).waitFor();};
-   await go('角色绑定');await manage('card');
-   await button('添加绑定角色').click();await view.getByRole('textbox',{name:'固定正面',exact:true}).fill('DISCARDED DRAFT');await button('取消编辑').click();assert.ok(!(await page.evaluate(()=>JSON.stringify(window.preview.settings))).includes('DISCARDED DRAFT'));
+   await go('角色管理');await manage('card');
+   await button('添加绑定角色').click();await view.getByRole('textbox',{name:'固定正面',exact:true}).fill('DISCARDED DRAFT');await button('放弃新增').click();assert.ok(!(await page.evaluate(()=>JSON.stringify(window.preview.settings))).includes('DISCARDED DRAFT'));
    for(const [title,name,positive,negative] of [['角色卡绑定','Card Hero','boy, silver hair, blue eyes','black hair'],['用户设定绑定','User Hero','boy, black hair, red eyes','blonde hair']]){
-    await manage(title==='角色卡绑定'?'card':'user');await button('添加绑定角色').click();await view.getByRole('textbox',{name:'角色名',exact:true}).fill(name);await view.getByRole('textbox',{name:'别名',exact:true}).fill(name+' Alias');await view.getByRole('textbox',{name:'固定正面',exact:true}).fill(positive);await view.getByRole('textbox',{name:'固定负面',exact:true}).fill(negative);await button('保存角色资料').click();await view.locator('.miao-binding-editor').waitFor({state:'detached'});
+    await manage(title==='角色卡绑定'?'card':'user');await button('添加绑定角色').click();await view.getByRole('textbox',{name:'角色名',exact:true}).fill(name);await view.getByRole('textbox',{name:'别名',exact:true}).fill(name+' Alias');await view.getByRole('textbox',{name:'固定正面',exact:true}).fill(positive);await view.getByRole('textbox',{name:'固定负面',exact:true}).fill(negative);await button('创建角色').click();await view.locator('.miao-binding-editor').waitFor({state:'detached'});
    }
    assert.ok(!(await page.evaluate(()=>JSON.stringify(window.preview.settings))).includes('silver hair'));
    assert.equal(await view.evaluate(n=>n.scrollWidth<=n.clientWidth+1),true);
    await page.locator('.miao-panel-body').evaluate(n=>n.scrollTop=0);
    await mkdir('docs/local',{recursive:true});await page.screenshot({path:`docs/local/character-bindings-${mobile?'mobile':'desktop'}.png`});
-   await home();await button('聊天管理').click();await button('载入当前聊天').click();await view.getByRole('switch',{name:'聊天启用C01',exact:true}).uncheck();await view.getByText('此聊天开关已保存并读回确认',{exact:true}).waitFor();assert.equal(await view.getByRole('switch',{name:'聊天启用C01',exact:true}).isChecked(),false);
-   await button('恢复全局 C01 Card Hero').click();await page.waitForFunction(()=>Object.keys(window.preview.context.chatMetadata.extensions.meow_t2i_bindings.values).length===0);
-   await go('生图指令');await button('展开通用 Tag 规范及补充').click();await page.getByRole('radio',{name:'选择角色绑定 Tag 规则',exact:true}).check();
+   await home();await button('聊天管理').click();await view.getByRole('switch',{name:'聊天启用C01',exact:true}).uncheck();await view.getByText('此聊天开关已保存并读回确认',{exact:true}).waitFor();assert.equal(await view.getByRole('switch',{name:'聊天启用C01',exact:true}).isChecked(),false);
+   await button('恢复全局 C01 Card Hero').click();await page.waitForFunction(()=>Object.values(window.preview.vibeFiles).some(file=>file.schemaVersion===1&&file.chatId&&Object.values(file.values||{}).includes('inherit')));
+   await go('提示词');await button('展开通用 Tag 规范及补充').click();await page.getByRole('radio',{name:'选择管理角色样貌 Tag',exact:true}).check();
    await page.waitForFunction(()=>window.preview.injections.miao_nai_image_instruction.text.includes('C01 = Card Hero'));
    const injection=await page.evaluate(()=>window.preview.injections.miao_nai_image_instruction.text);assert.ok(injection.includes('U01 = User Hero'));assert.ok(!injection.includes('silver hair'));assert.ok(!injection.includes('blonde hair'));
-   await page.locator('.miao-drawer-close').click();
+   await page.locator('.miao-drawer-close').click();await page.locator('.miao-settings').waitFor({state:'detached'});
    await page.evaluate(async()=>{
-    const p=window.preview;p.settings.mode='manual';p.settings.cloudQueue=false;p.chat.splice(0);await p.emit('GENERATION_STARTED','normal');await p.emit('GENERATION_AFTER_COMMANDS','normal');
+    const p=window.preview;p.settings.mode='manual';p.settings.profiles[p.settings.active].imageSizeMode='ai';p.settings.cloudQueue=false;p.chat.splice(0);await p.emit('GENERATION_STARTED','normal');await p.emit('GENERATION_AFTER_COMMANDS','normal');
     p.chat.unshift({name:'Loaded History',mes:'image###scene | C01, old history###',swipe_id:0});
-    p.chat.push({name:'Fixture',mes:'image###3boys, cafe | U01, smiling | C01, white shirt | boy, brown hair',swipe_id:0});
+    p.chat.push({name:'Fixture',mes:'image###\n@orientation: landscape\n3boys, cafe | U01, smiling | C01, white shirt | boy, brown hair',swipe_id:0});
     const mes=document.createElement('div');mes.className='mes';mes.setAttribute('mesid',String(p.chat.length-1));const body=document.createElement('div');body.className='mes_text';body.textContent=p.chat.at(-1).mes;mes.append(body);document.querySelector('#chat').replaceChildren(mes);await p.emit('MESSAGE_UPDATED',0);
    });
    assert.equal(await page.evaluate(()=>window.preview.chat.at(-1).miaoCharacterSnapshots),undefined);
@@ -55,8 +55,8 @@ test('actual binding UI, D0, chat switches and complete ungenerated history on d
    assert.equal(await page.evaluate(()=>window.preview.chat[0].miaoCharacterSnapshots),undefined);
    const snapshot=await page.evaluate(()=>structuredClone(window.preview.chat.at(-1).miaoCharacterSnapshots));
    await button('生成插图').click();await page.waitForFunction(()=>window.preview.calls.length===1);await page.locator('.miao-image-card img').waitFor();
-   const payload=await page.evaluate(()=>window.preview.calls[0]);assert.deepEqual(payload.parameters.characterPrompts.map(c=>c.uc),['blonde hair','black hair','']);assert.equal(payload.parameters.characterPrompts[1].prompt,'boy, silver hair, blue eyes, white shirt');assert.ok(!payload.input.includes('silver hair'));assert.deepEqual(await page.evaluate(()=>window.preview.chat.at(-1).miaoCharacterSnapshots),snapshot);
-   await page.locator('#miao-nai-menu').click();await go('角色绑定');await manage('card');await button('编辑 C01 Card Hero').click();await view.getByRole('textbox',{name:'固定正面',exact:true}).fill('boy, CHANGED APPEARANCE');await view.getByRole('textbox',{name:'固定负面',exact:true}).fill('LATEST CARD UC');await button('保存角色资料').click();await view.locator('.miao-binding-editor').waitFor({state:'detached'});await page.locator('.miao-drawer-close').click();
+   const payload=await page.evaluate(()=>window.preview.calls[0]);assert.equal(payload.parameters.width,1216);assert.equal(payload.parameters.height,832);assert.equal(payload.input.includes('@orientation'),false);assert.deepEqual(payload.parameters.characterPrompts.map(c=>c.uc),['blonde hair','black hair','']);assert.equal(payload.parameters.characterPrompts[1].prompt,'boy, silver hair, blue eyes, white shirt');assert.ok(!payload.input.includes('silver hair'));assert.deepEqual(await page.evaluate(()=>window.preview.chat.at(-1).miaoCharacterSnapshots),snapshot);
+   await page.locator('#miao-nai-menu').click();await go('角色管理');await manage('card');await button('编辑 C01 Card Hero').click();await view.getByRole('textbox',{name:'固定正面',exact:true}).fill('boy, CHANGED APPEARANCE');await view.getByRole('textbox',{name:'固定负面',exact:true}).fill('LATEST CARD UC');await button('完成编辑').click();await view.locator('.miao-binding-editor').waitFor({state:'detached'});await page.locator('.miao-drawer-close').click();await page.locator('.miao-settings').waitFor({state:'detached'});
    await page.evaluate(()=>Object.assign(window.preview.settings.profiles[window.preview.settings.active],{width:640,scale:8,seed:555,positive:'CHANGED GLOBAL'}));
    await page.locator('.miao-image-card img').dblclick();await page.waitForFunction(()=>window.preview.calls.length===2);
    const fixedPayload=await page.evaluate(()=>window.preview.calls[1]);
@@ -77,7 +77,7 @@ test('actual binding UI, D0, chat switches and complete ungenerated history on d
    for(const mode of ['auto','stream']){
     const expected=mode==='auto'?4:5;
     await page.evaluate(async mode=>{
-     const p=window.preview;p.settings.mode=mode;p.chat.splice(0);p.chatId='binding-'+mode;await p.emit('CHAT_CHANGED');await p.emit('GENERATION_STARTED','normal');await p.emit('GENERATION_AFTER_COMMANDS','normal');
+     const p=window.preview;p.settings.mode=mode;p.chat.splice(0);p.chatId='binding-'+mode;p.context.chatMetadata={integrity:'fixture-'+mode};await p.context.saveChat();await p.emit('CHAT_CHANGED');await p.emit('GENERATION_STARTED','normal');await p.emit('GENERATION_AFTER_COMMANDS','normal');
      p.chat.push({name:'Automatic Fixture',mes:'image###1boy, cafe | U01, smiling'+(mode==='auto'?'###':''),swipe_id:0});
      const mes=document.createElement('div');mes.className='mes';mes.setAttribute('mesid','0');const body=document.createElement('div');body.className='mes_text';body.textContent=p.chat.at(-1).mes;mes.append(body);document.querySelector('#chat').replaceChildren(mes);
      await p.emit(mode==='auto'?'GENERATION_ENDED':'STREAM_TOKEN_RECEIVED');

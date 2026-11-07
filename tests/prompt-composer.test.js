@@ -16,7 +16,7 @@ test('migration is read only and distinguishes conditional entries',()=>{
 test('single D0 ID always reflects latest synchronous configuration and host errors surface',()=>{
  const calls=[],settings={enabled:true,promptConfig:defaultPromptSettings()};let errors=0;
  const injection=createPromptInjection({settings,context:()=>({setExtensionPrompt:(...args)=>calls.push(args)}),onError:()=>errors++});
- injection.update();settings.promptConfig.params.persona='latest';injection.update();assert.ok(calls.at(-1)[1].includes('User：latest'));
+ injection.update();settings.promptConfig.params.count='latest';injection.update();assert.ok(calls.at(-1)[1].includes('数量为 latest 张'));
  settings.promptConfig.mode='external';injection.update();assert.equal(calls.at(-1)[1],'');settings.promptConfig.mode='builtin';settings.enabled=false;injection.update();assert.equal(calls.at(-1)[1],'');settings.enabled=true;injection.update();
  assert.ok(calls.every(c=>c[0]===PROMPT_ID&&JSON.stringify(c.slice(2))==='[1,0,false,0]'));
  assert.throws(()=>createPromptInjection({settings,context:()=>({}),onError:()=>errors++}).update());assert.equal(errors,1);

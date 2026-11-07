@@ -4,15 +4,15 @@ import {defaults} from '../src/core/core.js';
 import {ensureProfileIds} from '../src/profiles/profile-previews.js';
 import {promptFileData,promptFilename,importPromptData,readPromptFile,readPromptFiles,promptBundleData,PROMPT_BUNDLE_LIMIT,readPreviewData,PROMPT_FILE_LIMIT,PREVIEW_DATA_LIMIT} from '../src/prompts/prompt-files.js';
 
-const profile={...defaults,name:'猫猫',positive:'year 2025,\n1.5::artist:猫::, ',positiveSuffix:'\nno text,',negative:'lowres, bad hands',vibes:[{id:'private-vibe',strength:0.8}],key:'private-key',model:'nai-diffusion-4-5-curated',width:1216,height:832,steps:28,scale:6.5,seed:12345,sampler:'k_dpmpp_2m',scheduler:'exponential',varietyBoost:true};
-test('prompt files round trip all three strings and generation parameters without Vibes or keys',async()=>{
+const profile={...defaults,name:'猫猫',positive:'year 2025,\n1.5::artist:猫::, ',positiveSuffix:'\nno text,',negative:'lowres, bad hands',vibes:[{id:'private-vibe',strength:0.8}],key:'private-key',model:'nai-diffusion-4-5-curated',width:1216,height:832,steps:28,scale:6.5,guidanceRescale:0.4,seed:12345,sampler:'k_dpmpp_2m',scheduler:'exponential',varietyBoost:true};
+test('prompt files round trip positive and negative strings and generation parameters without Vibes or keys',async()=>{
     const data=promptFileData(profile),serialized=JSON.stringify(data);
     assert.deepEqual(Object.keys(data).sort(),['name','parameters','prompts','type','version']);
-    assert.deepEqual(Object.keys(data.prompts).sort(),['negative','positive','positiveSuffix']);
-    assert.ok(!serialized.includes('private'));
+    assert.deepEqual(Object.keys(data.prompts).sort(),['negative','positive']);
+    assert.ok(!serialized.includes('private'));assert.equal('positiveSuffix' in data.prompts,false);
     const restored=await readPromptFile(new File(['\uFEFF'+serialized],'串.json'));
-    for(const field of ['positive','positiveSuffix','negative'])assert.equal(restored[field],profile[field]);
-    assert.deepEqual(restored.vibes,[]);assert.equal(restored.vibeEnabled,false);for(const field of ['model','width','height','steps','scale','seed','sampler','scheduler','varietyBoost'])assert.equal(restored[field],profile[field]);
+    for(const field of ['positive','negative'])assert.equal(restored[field],profile[field]);
+    assert.deepEqual(restored.vibes,[]);assert.equal(restored.vibeEnabled,false);for(const field of ['model','width','height','steps','scale','seed','sampler','scheduler','varietyBoost','guidanceRescale'])assert.equal(restored[field],profile[field]);
 });
 test('import creates a unique profile and ignores injected non-profile properties',()=>{
     const existing=[profile,{...profile,name:'猫猫 (2)'}],before=JSON.stringify(existing);

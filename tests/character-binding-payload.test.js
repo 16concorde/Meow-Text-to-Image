@@ -9,7 +9,7 @@ import {payloadSecrets} from '../src/novelai/nai-response.js';
 const bindings=[{shortId:'U01',positive:'boy, black hair, red eyes',negative:'blonde hair',enabled:true},{shortId:'C01',positive:'boy, silver hair, blue eyes',negative:'black hair',enabled:true}];
 test('mixed bound/unbound characters preserve ordered positive/negative captions and global isolation',()=>{
  const raw='3boys, cafe | U01, smiling, black coat | C01, white shirt | boy, brown hair',request=buildRequest({...defaults,positive:'FRONT',positiveSuffix:'BACK',negative:'GLOBAL',qualityPreset:'none',ucPreset:'none'},raw,bindings),body=naiPayload(request);
- assert.equal(request.prompt,'FRONT,\n3boys, cafe,\nBACK,');assert.equal(request.negative_prompt,'GLOBAL');
+ assert.equal(request.prompt,'FRONT,\n3boys, cafe,');assert.equal(request.negative_prompt,'GLOBAL');
  const positives=['boy, black hair, red eyes, smiling, black coat','boy, silver hair, blue eyes, white shirt','boy, brown hair'],negatives=['blonde hair','black hair',''];
  assert.deepEqual(request.naiCharacters,positives);assert.deepEqual(request.naiCharacterNegatives,negatives);
  assert.deepEqual(body.parameters.characterPrompts.map(c=>c.prompt),positives);assert.deepEqual(body.parameters.characterPrompts.map(c=>c.uc),negatives);

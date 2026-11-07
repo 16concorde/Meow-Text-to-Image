@@ -1,3 +1,4 @@
+import {vibeImageData} from './vibe-image.js';
 // File schema and model encoding keys follow the official NovelAI image client.
 export const vibeModelKeys={'nai-diffusion-4-5-full':'v4-5full','nai-diffusion-4-5-curated':'v4-5curated','nai-diffusion-4-full':'v4full','nai-diffusion-4-curated-preview':'v4curated'};
 export const profileVibeEnabled=profile=>profile.vibeEnabled!==false&&(!profile.model||!!vibeModelKeys[profile.model]);
@@ -13,12 +14,13 @@ export function selectVibes(profile,library=[],random=Math.random){
     return structuredClone(chosen).map(binding=>({...binding,name:library.find(item=>item.id===binding.id)?.name||binding.name||binding.id}));
 }
 export function importVibeData(data,fallbackName='Vibe'){
+    if(data?.identifier!==undefined&&(!['novelai-vibe-transfer','novelai-vibe-transfer-bundle'].includes(data.identifier)||data.version!==1))throw Error('不支持的 Vibe 文件结构或版本');
     const sources=Array.isArray(data?.vibes)?data.vibes:[data];
     if(!sources.length||sources.length>128)throw Error('一次最多导入 128 个 Vibe');
     return sources.map((source,index)=>{
         const encodings={};
         for(const [model,variants] of Object.entries(source?.encodings||{})){
-            if(!Object.values(vibeModelKeys).includes(model))continue;
+            if(!/^[a-zA-Z0-9_.-]{1,128}$/.test(model)||['__proto__','constructor','prototype'].includes(model))continue;
             for(const [key,variant] of Object.entries(variants||{})){
                 if(!/^[a-zA-Z0-9_.-]{1,128}$/.test(key)||['__proto__','constructor','prototype'].includes(key))continue;
                 if(!variant?.encoding||!validBase64(variant.encoding))continue;
@@ -27,15 +29,15 @@ export function importVibeData(data,fallbackName='Vibe'){
                 (encodings[model]??={})[key]={encoding:variant.encoding,params:{information_extracted:info}};
             }
         }
-        const image=source?.image?stripImage(source.image):null;
-        if(!Object.keys(encodings).length&&!image)throw Error('没有可用的 Vibe 编码或原图；带遮罩的 Vibe 暂不支持');
-        return {name:String(source?.name||fallbackName+(sources.length>1?` ${index+1}`:'')).slice(0,100),encodings,image,thumbnail:source?.thumbnail?safeThumbnail(source.thumbnail):null};
+        let image=null,thumbnail=source?.thumbnail?safeThumbnail(source.thumbnail):null;try{if(source?.image)image=stripImage(source.image);}catch{}
+        if(!Object.keys(encodings).length&&!image&&!thumbnail)throw Error('没有可用的 Vibe 编码或原图；带遮罩的 Vibe 暂不支持');
+        return {name:String(source?.name||fallbackName+(sources.length>1?` ${index+1}`:'')).slice(0,100),encodings,image,thumbnail};
     });
 }
 export function validBase64(value){return typeof value==='string'&&value.length>0&&value.length<=16*1024*1024&&/^[A-Za-z0-9+/]+={0,2}$/.test(value);}
-export function stripImage(value){const raw=String(value).replace(/^data:image\/(?:png|jpeg|webp);base64,/, '');if(!validBase64(raw))throw Error('图片数据无效或超过 12 MB');return raw;}
-function safeThumbnail(value){try{return 'data:image/png;base64,'+stripImage(value);}catch{return null;}}
-export function vibeSummary(item){return {id:item.id,name:item.name,thumbnail:item.thumbnail,hasImage:!!item.image,variants:Object.entries(item.encodings).flatMap(([model,variants])=>Object.entries(variants).map(([key,v])=>({model,key,information:v.params.information_extracted}))) };}
+export function stripImage(value){return vibeImageData(value).raw;}
+export function safeThumbnail(value){try{return vibeImageData(value).url;}catch{return null;}}
+export function vibeSummary(item){return {id:item.id,name:item.name,thumbnail:item.thumbnail,hasImage:!!item.image,previewState:item.thumbnail?'ready':item.previewState||(!item.image?'encoding-only':'unavailable'),variants:Object.entries(item.encodings).flatMap(([model,variants])=>Object.entries(variants).map(([key,v])=>({model,key,information:v.params.information_extracted}))) };}
 export function resolveVibes(model,bindings,library){
     if(bindings!==undefined&&!Array.isArray(bindings))throw Error('Vibe 列表格式错误');
     if(!bindings?.length)return {};

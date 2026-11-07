@@ -20,10 +20,10 @@ test('website quality suffixes follow the selected model and come after all user
  };
  for(const [model,suffix] of Object.entries(suffixes)){
   const p={...profile,model,qualityPreset:'standard'},before=structuredClone(p),request=buildRequest(p,'scene');
-  assert.equal(request.prompt,`front,\nscene,\nback, ${suffix}, `);assert.equal(request.negative_prompt,p.negative);assert.deepEqual(p,before);
+  assert.equal(request.prompt,`front,\nscene, ${suffix}, `);assert.equal(request.negative_prompt,p.negative);assert.deepEqual(p,before);
   const direct=naiPayload(request);assert.equal(direct.input,request.prompt);assert.equal(direct.parameters.v4_prompt.caption.base_caption,request.prompt);assert.equal(direct.parameters.qualityToggle,false);
  }
- for(const model of ['nai-diffusion-5-full','nai-diffusion-5-curated'])assert.equal(buildRequest({...profile,model,qualityPreset:'light'},'scene').prompt,'front,\nscene,\nback, very aesthetic, amazing quality, no text, ');
+ for(const model of ['nai-diffusion-5-full','nai-diffusion-5-curated'])assert.equal(buildRequest({...profile,model,qualityPreset:'light'},'scene').prompt,'front,\nscene, very aesthetic, amazing quality, no text, ');
 });
 test('UC presets prepend model-specific tags and follow the website nsfw condition on non-curated models',()=>{
  const heavy='lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page';
@@ -41,14 +41,14 @@ test('UC presets prepend model-specific tags and follow the website nsfw conditi
 test('legacy configurations get Standard/Heavy, while explicit None and unsupported presets add no tags',()=>{
  const old=normalizeProfile({positive:'old',negative:'avoid'});assert.equal(old.qualityPreset,'standard');assert.equal(old.ucPreset,'heavy');
  for(const patch of [{},{qualityPreset:'none',ucPreset:'none'},{qualityPreset:'unknown',ucPreset:'unknown'},{model:'unknown-model',qualityPreset:'standard',ucPreset:'heavy'}]){
-  const request=buildRequest({...profile,...patch},'scene');assert.equal(request.prompt,'front,\nscene,\nback,');assert.equal(request.negative_prompt,profile.negative);
+  const request=buildRequest({...profile,...patch},'scene');assert.equal(request.prompt,'front,\nscene,');assert.equal(request.negative_prompt,profile.negative);
  }
- assert.equal(buildRequest({...profile,qualityPreset:'light'},'scene').prompt,'front,\nscene,\nback,');
+ assert.equal(buildRequest({...profile,qualityPreset:'light'},'scene').prompt,'front,\nscene,');
  assert.deepEqual(novelAIPresets('nai-diffusion-4-5-curated','uc').map(x=>x.id),['heavy','light','humanFocus','none']);
 });
 test('website preset composition preserves repeated and weighted tags without deduplicating',()=>{
  const p={...profile,positive:'masterpiece, 1.2::masterpiece, no text::',positiveSuffix:'masterpiece',negative:'lowres, {{lowres}}, 0::ai-generated::',qualityPreset:'standard',ucPreset:'heavy'};
- const r=buildRequest(p,'masterpiece');assert.equal(r.prompt,'masterpiece, 1.2::masterpiece, no text::,\nmasterpiece,\nmasterpiece, very aesthetic, masterpiece, no text, ');assert.ok(r.negative_prompt.endsWith(', lowres, {{lowres}}, 0::ai-generated::'));
+ const r=buildRequest(p,'masterpiece');assert.equal(r.prompt,'masterpiece, 1.2::masterpiece, no text::,\nmasterpiece, very aesthetic, masterpiece, no text, ');assert.ok(r.negative_prompt.endsWith(', lowres, {{lowres}}, 0::ai-generated::'));
 });
 test('preset composition preserves V4 character captions, text and quoted chunks; V3 mixing keeps weights',()=>{
  const p={...profile,qualityPreset:'standard',ucPreset:'heavy'};

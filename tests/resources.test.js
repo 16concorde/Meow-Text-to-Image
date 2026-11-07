@@ -1,40 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {mergeWorldEntries,mergeRegexRules,bundledWorldTargets,migrateWorldBindings,WORLD_NAME} from '../src/resources/resources.js';
+import {mergeRegexRules,bundledWorldTargets,WORLD_NAME} from '../src/resources/resources.js';
 
-test('world updates replace matching titles, keep entry IDs, and retain unrelated user entries',()=>{
-    const old={name:'user metadata',entries:{7:{uid:7,comment:'主体',content:'old',disable:true},3:{uid:3,comment:'用户追加',content:'keep'},9:{uid:9,comment:'主体',content:'duplicate'}}};
-    const incoming={entries:{0:{uid:0,comment:'主体',content:'2.1',disable:false},3:{uid:3,comment:'新增条目',content:'new'}}};
-    const result=mergeWorldEntries(old,incoming);
-    assert.equal(result.entries[7].content,'2.1');assert.equal(result.entries[7].uid,7);assert.equal(result.entries[7].disable,false);
-    assert.equal(result.entries[3].content,'keep');assert.equal(result.entries[9],undefined);
-    assert.equal(Object.values(result.entries).filter(entry=>entry.comment==='主体').length,1);
-    const added=Object.values(result.entries).find(entry=>entry.comment==='新增条目');assert.notEqual(added.uid,3);assert.equal(result.name,'user metadata');
-    assert.deepEqual(mergeWorldEntries(result,incoming),result);
-    assert.equal(old.entries[7].content,'old');assert.equal(incoming.entries[0].uid,0);
-});
-test('invalid world resources fail before merging and bundled world names retain old bindings',()=>{
-    for(const entries of [null,[],{0:null}])assert.throws(()=>mergeWorldEntries({entries:{}},{entries}),/entries/);
+test('legacy world names remain discoverable for read-only prompt migration',()=>{
     assert.deepEqual(bundledWorldTargets([],''),[WORLD_NAME]);
     assert.deepEqual(bundledWorldTargets(['其他书','[喵喵]文生图 2.0'],'其他书'),['[喵喵]文生图 2.0']);
     assert.deepEqual(bundledWorldTargets(['[喵喵]文生图 2.0',WORLD_NAME],WORLD_NAME),[WORLD_NAME,'[喵喵]文生图 2.0']);
     assert.deepEqual(bundledWorldTargets(['自定义 2.0','[喵喵]文生图 2.9'],''),[WORLD_NAME]);
 });
 
-test('world upgrade retargets global, character, persona and chat links without duplicate activation',()=>{
-    const old='[喵喵]文生图 2.0',selected=[old,'其他书',WORLD_NAME];
-    const worldInfo={globalSelect:[...selected],charLore:[{name:'a',extraBooks:[old,'其他书',WORLD_NAME]},{name:'b',extraBooks:['其他书']}]};
-    const powerUser={persona_description_lorebook:old,persona_descriptions:{a:{lorebook:old},b:{lorebook:'其他书'}}};
-    const chatMetadata={world_info:old,other:'keep'};
-    assert.equal(migrateWorldBindings({selected,worldInfo,powerUser,chatMetadata},[old]),true);
-    assert.deepEqual(selected,[WORLD_NAME,'其他书']);assert.deepEqual(worldInfo.globalSelect,selected);
-    assert.deepEqual(worldInfo.charLore[0].extraBooks,[WORLD_NAME,'其他书']);assert.deepEqual(worldInfo.charLore[1].extraBooks,['其他书']);
-    assert.equal(powerUser.persona_description_lorebook,WORLD_NAME);assert.equal(powerUser.persona_descriptions.a.lorebook,WORLD_NAME);assert.equal(powerUser.persona_descriptions.b.lorebook,'其他书');
-    assert.deepEqual(chatMetadata,{world_info:WORLD_NAME,other:'keep'});
-    assert.equal(migrateWorldBindings({selected,worldInfo,powerUser,chatMetadata},[old]),false);
-    const inactive=[];migrateWorldBindings({selected:inactive},[old]);assert.deepEqual(inactive,[]);
-});
 test('regex overwrites old dated copies even with changed IDs and removes duplicates',()=>{
     const old=[{id:'unrelated',scriptName:'用户规则',findRegex:'x',replaceString:'keep'},{id:'imported-id',scriptName:'喵喵文生图1-去标签-0820',findRegex:'old',replaceString:'old'},{id:'copy-id',scriptName:'喵喵文生图1-去标签-1024',findRegex:'copy',replaceString:'copy'},{id:'other',scriptName:'用户规则-0820',findRegex:'y',replaceString:'keep'}];
     const incoming=[{id:'author-id',scriptName:'喵喵文生图1-去标签-1024',findRegex:'new',replaceString:'',disabled:false}];
@@ -52,13 +27,12 @@ test('regex also replaces by ID or exact name, without conflating unrelated date
     assert.equal(dated.length,2);assert.equal(dated[1].id,'new-id');
     assert.throws(()=>mergeRegexRules([], [{findRegex:'x',replaceString:''},{findRegex:'y'}]),/正则/);
 });
-test('patch world upgrades cover old minor and patch versions without overwriting newer books',()=>{
+test('legacy discovery covers old minor and patch versions without selecting newer books',()=>{
     const current='[喵喵]文生图 2.2.2',old=['[喵喵]文生图 2.0','[喵喵]文生图 2.1','[喵喵]文生图 2.2','[喵喵]文生图 2.2.0','[喵喵]文生图 2.2.1'];
     const names=[...old,current,'[喵喵]文生图 2.2.3','[喵喵]文生图 2.2.10','[喵喵]文生图 2.3','用户书 2.2'];
     assert.deepEqual(bundledWorldTargets(names,old[2],current),[old[2],old[0],old[1],old[3],old[4],current]);
     assert.deepEqual(bundledWorldTargets(names,current,current),[current,...old]);
-    const selected=[old[2],current,'其他书'],chatMetadata={world_info:old[2]};
-    assert.equal(migrateWorldBindings({selected,chatMetadata},old,current),true);assert.deepEqual(selected,[current,'其他书']);assert.equal(chatMetadata.world_info,current);
+
 });
 
 test('bundled pack is exactly world 2.2.2 and the four supplied regex versions',async()=>{
@@ -67,6 +41,5 @@ test('bundled pack is exactly world 2.2.2 and the four supplied regex versions',
     assert.equal(Object.keys(book.entries).length,13);
     assert.ok(book.entries[10].content.includes('easter_egg'));
     assert.deepEqual(rules.map(rule=>rule.scriptName),['喵喵文生图1-去标签-1024','喵喵文生图2-去imagethink-1024','喵喵文生图3-居中美化-0511','喵喵文生图4-彩蛋介绍美化-1024']);
-    assert.deepEqual(mergeWorldEntries(mergeWorldEntries({entries:{}},book),book),mergeWorldEntries({entries:{}},book));
     assert.equal(mergeRegexRules(mergeRegexRules([],rules),rules).length,4);
 });

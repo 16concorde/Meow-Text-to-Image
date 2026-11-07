@@ -35,22 +35,22 @@ test('all V4 variants allow six and V5 variants allow twenty-two character capti
  }
 });
 test('buildRequest keeps single caption output and places profile, text and presets only in base',()=>{
- const single=buildRequest(profile,'1boy, solo');assert.equal(single.prompt,'front,\n1boy, solo,\nback,');assert.equal('naiCharacters' in single,false);
+ const single=buildRequest(profile,'1boy, solo');assert.equal(single.prompt,'front,\n1boy, solo,');assert.equal('naiCharacters' in single,false);
  for(const model of models){
   const p={...profile,model,positive:'||ink|paint||',positiveSuffix:'back',qualityPreset:'standard',ucPreset:'heavy'},before=structuredClone(p);
   const request=buildRequest(p,'2boys, night, Text: hello | boy, source#hug | boy, target#hug');
   assert.deepEqual(request.naiCharacters,['boy, source#hug','boy, target#hug']);assert.match(request.prompt,/^\|\|ink\|paint\|\|,\n2boys, night/);
   const qualityAt=request.prompt.search(/best quality|very aesthetic/);assert.ok(qualityAt>=0&&qualityAt<request.prompt.indexOf('Text:'));
-  assert.ok(request.prompt.includes('back,'));assert.equal(request.prompt.includes('source#'),false);assert.match(request.negative_prompt,/lowres/);assert.deepEqual(p,before);
+  assert.equal(request.prompt.includes('back,'),false);assert.equal(request.prompt.includes('source#'),false);assert.match(request.negative_prompt,/lowres/);assert.deepEqual(p,before);
  }
- for(const key of ['positive','positiveSuffix'])assert.throws(()=>buildRequest({...profile,[key]:'style | boy'},'scene'),/配置正面只用于全局风格/);
+ for(const key of ['positive'])assert.throws(()=>buildRequest({...profile,[key]:'style | boy'},'scene'),/配置正面只用于全局风格/);
  assert.throws(()=>buildRequest({...profile,positive:'||unfinished'},'scene'),/未闭合/);
 });
 test('native payload maps matching ordered positive and empty negative captions with AI placement',()=>{
  for(const model of models){
   const request=buildRequest({...profile,model},'2boys, night | boy, red eyes | boy, blue eyes'),snapshot=structuredClone(request);
   const body=naiPayload(request),p=body.parameters;
-  assert.equal(body.input,'front,\n2boys, night,\nback,');assert.equal(p.v4_prompt.caption.base_caption,body.input);
+  assert.equal(body.input,'front,\n2boys, night,');assert.equal(p.v4_prompt.caption.base_caption,body.input);
   assert.deepEqual(p.v4_prompt.caption.char_captions,[{char_caption:'boy, red eyes',centers:[{x:.5,y:.5}]},{char_caption:'boy, blue eyes',centers:[{x:.5,y:.5}]}]);
   assert.deepEqual(p.characterPrompts,[{prompt:'boy, red eyes',uc:'',center:{x:.5,y:.5}},{prompt:'boy, blue eyes',uc:'',center:{x:.5,y:.5}}]);
   assert.deepEqual(p.v4_negative_prompt.caption.char_captions,[{char_caption:'',centers:[{x:.5,y:.5}]},{char_caption:'',centers:[{x:.5,y:.5}]}]);

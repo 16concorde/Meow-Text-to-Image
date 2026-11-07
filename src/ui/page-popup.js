@@ -43,11 +43,12 @@ export function showPagePopup(content,{parent,onOpen,onClosing,fillParent=false,
             viewport?.removeEventListener('resize',fit);viewport?.removeEventListener('scroll',fit);win.removeEventListener('resize',fit);
             if(win.__TAURITAVERN_HANDLE_BACK__===back)win.__TAURITAVERN_HANDLE_BACK__=previousBack;
             const toasts=card.querySelector('#toast-container');if(toasts)doc.body.append(toasts);
-            layer.remove();for(const [element,value] of visibility)element.style.visibility=value;for(const [element,value] of inert)element.inert=value;if(!nested)doc.body.style.overflow=overflow;
+            layer.removeEventListener('pointerdown',backdropStart);layer.removeEventListener('pointerup',backdropEnd);layer.remove();for(const [element,value] of visibility)element.style.visibility=value;for(const [element,value] of inert)element.inert=value;if(!nested)doc.body.style.overflow=overflow;
             if(previous?.isConnected&&!previous.closest('[inert]'))previous.focus({preventScroll:true});
             if(error)reject(error);else resolve(1);
         };
         const parentClosed=()=>finish();
+        let backdropDown=false;const backdropStart=event=>{backdropDown=event.target===layer;},backdropEnd=event=>{const close=backdropDown&&event.target===layer;backdropDown=false;if(close&&!card.querySelector('.miao-prompt-editor,.miao-confirmation-layer,.miao-binding-confirm')&&!activeViewers.has(card))void requestClose();};layer.addEventListener('pointerdown',backdropStart);layer.addEventListener('pointerup',backdropEnd);
         const key=event=>{
             if(card.dataset.panelPage)return;
             if(activeViewers.has(card))return;

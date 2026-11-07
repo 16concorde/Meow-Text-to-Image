@@ -1,37 +1,23 @@
+import {aiLayoutEnabled,imageLayoutInstruction} from '../prompts/image-layout.js';
 import {treeById} from '../prompts/tree-defaults.js';
 import {treeText,withTreeText} from '../prompts/tree-settings.js';
-const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
-export function openPromptEditor({parent,settings,key,label,save,onError=()=>{},onSaved=()=>{}}){
-    if(parent.querySelector('.miao-prompt-editor'))return;
-    const defaults=treeById[key].slots;
-    const initial=Object.fromEntries(Object.keys(defaults).map(slot=>[slot,treeText(settings.promptConfig,key,slot)]));
-    const layer=node('div',undefined,'miao-prompt-editor'),card=node('section',undefined,'miao-prompt-editor-card');
-    card.setAttribute('role','dialog');card.setAttribute('aria-modal','true');card.setAttribute('aria-label','编辑 · '+label);
-    const heading=node('h3','编辑 · '+label),fields=node('div',undefined,'miao-prompt-editor-fields'),status=node('p','','miao-muted'),actions=node('div',undefined,'miao-actions'),inputs={};
-    for(const slot of Object.keys(initial)){
-        const title=({prefix:'开头',body:'正文',suffix:'结尾'}[slot]);
-        const wrap=node('label',undefined,'miao-prompt-editor-field'),input=node('textarea');input.value=initial[slot];input.setAttribute('aria-label',title);input.spellcheck=false;input.wrap='soft';wrap.append(node('span',title),input);fields.append(wrap);inputs[slot]=input;
-    }
-    const first=Object.values(inputs)[0],previous=document.activeElement,blocked=[...parent.children].map(n=>[n,n.inert]);for(const [n] of blocked)n.inert=true;
-    let busy=false,finished=false;
-    const finish=()=>{if(finished)return;finished=true;observer.disconnect();parent.removeEventListener('close',finish);document.removeEventListener('keydown',keyHandler,true);parent.removeEventListener('cancel',cancel,true);viewport?.removeEventListener('resize',fit);viewport?.removeEventListener('scroll',fit);if(window.__TAURITAVERN_HANDLE_BACK__===back)window.__TAURITAVERN_HANDLE_BACK__=oldBack;layer.remove();for(const [n,inert] of blocked)n.inert=inert;if(previous?.isConnected)previous.focus();};
-    const discard=()=>{if(!busy&&(Object.entries(inputs).every(([slot,input])=>input.value===initial[slot])||window.confirm('放弃当前未保存的修改？')))finish();};
-    const cancel=e=>{e.preventDefault();e.stopImmediatePropagation();discard();};
-    const keyHandler=e=>{if(e.key==='Escape')cancel(e);else if(e.key==='Tab'){const items=[...card.querySelectorAll('button:not(:disabled),textarea,summary')],first=items[0],last=items.at(-1);if(e.shiftKey&&document.activeElement===first||!e.shiftKey&&document.activeElement===last){e.preventDefault();(e.shiftKey?last:first).focus();}}else if(e.key==='Enter')e.stopPropagation();};
-    const button=(text,run)=>{const b=node('button',text,'miao-button');b.type='button';b.onclick=run;actions.append(b);return b;};
-    const restore=button('恢复默认',()=>{if(!busy){for(const [slot,input] of Object.entries(inputs))input.value=defaults[slot];first.focus();}});
-    const dismiss=button('取消',discard);
-    const submit=button('保存',async()=>{
-        if(busy)return;busy=true;submit.disabled=restore.disabled=dismiss.disabled=true;for(const input of Object.values(inputs))input.readOnly=true;
-        try{
-            const values=Object.fromEntries(Object.entries(inputs).map(([slot,input])=>[slot,input.value]));
-            await save(withTreeText(settings.promptConfig,key,values));onSaved();finish();
-        }catch(error){status.textContent=error.message;onError(error);}
-        finally{busy=false;submit.disabled=restore.disabled=dismiss.disabled=false;for(const input of Object.values(inputs))input.readOnly=false;}
-    });
-    card.append(heading,node('p',(key==='task'?'任务说明中的（对象）、（人格）、（数量）张由基础配置替换，彩蛋开启时自动补充标记。':'保存后更新 D0；恢复默认仅修改当前草稿。酒馆宏按原文保留，插件不解析变量。'),'miao-muted'),fields,status,actions);layer.append(card);parent.append(layer);
-    const viewport=window.visualViewport,fit=()=>{layer.style.setProperty('--miao-editor-height',Math.max(180,(viewport?.height||window.innerHeight)-Math.max(0,parent.getBoundingClientRect().top-(viewport?.offsetTop||0))-16)+'px');};fit();viewport?.addEventListener('resize',fit);viewport?.addEventListener('scroll',fit);
-    const observer=new MutationObserver(()=>{if(!layer.isConnected)finish();});observer.observe(document.body,{childList:true,subtree:true});parent.addEventListener('close',finish);
-    const oldBack=window.__TAURITAVERN_HANDLE_BACK__,back=()=>{discard();return true;};window.__TAURITAVERN_HANDLE_BACK__=back;
-    parent.addEventListener('cancel',cancel,true);document.addEventListener('keydown',keyHandler,true);first.focus();return {element:layer};
+import {createPromptAutosave} from './prompt-autosave.js';
+const n=(tag,text,cls)=>{const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;};
+export function openPromptEditor({parent,settings,key,label,save,onSaved=()=>{}}){
+    if(treeById[key]?.editable===false)throw Error('固定任务不可编辑');if(parent.querySelector('.miao-prompt-editor'))return;
+    const defaults=treeById[key].slots,opened=Object.fromEntries(Object.keys(defaults).map(slot=>[slot,treeText(settings.promptConfig,key,slot)]));let confirmed={...opened},finished=false;
+    const layer=n('div',undefined,'miao-prompt-editor'),card=n('section',undefined,'miao-prompt-editor-card'),fields=n('div',undefined,'miao-prompt-editor-fields'),status=n('p','','miao-muted'),actions=n('div',undefined,'miao-actions'),inputs={};status.setAttribute('role','status');card.setAttribute('role','dialog');card.setAttribute('aria-modal','true');card.setAttribute('aria-label','编辑 · '+label);
+    const autosave=createPromptAutosave({onError:error=>status.textContent=error.message,run:async()=>{const values=Object.fromEntries(Object.entries(inputs).map(([slot,input])=>[slot,input.value]));if(JSON.stringify(values)===JSON.stringify(confirmed))return;status.textContent='保存中…';await save(withTreeText(settings.promptConfig,key,values));confirmed=values;status.textContent='';onSaved();}});
+    for(const [slot,value] of Object.entries(opened)){const wrap=n('label',undefined,'miao-prompt-editor-field'),input=n('textarea');input.value=value;input.setAttribute('aria-label',({prefix:'开头',body:'正文',suffix:'结尾'})[slot]);input.spellcheck=false;input.wrap='soft';input.addEventListener('input',autosave.schedule);input.addEventListener('compositionstart',autosave.compositionStart);input.addEventListener('compositionend',autosave.compositionEnd);wrap.append(n('span',input.getAttribute('aria-label')),input);fields.append(wrap);inputs[slot]=input;}
+    if(key==='output.format'&&aiLayoutEnabled(settings)){const preview=n('pre',imageLayoutInstruction(settings.promptConfig.capture),'miao-task-preview');fields.append(n('h4','AI 横竖构图协议'),preview);}
+    const previous=document.activeElement,blocked=[...parent.children].map(el=>[el,el.inert]);for(const [el] of blocked)el.inert=true;
+    const finish=()=>{if(finished)return;finished=true;autosave.dispose();observer.disconnect();document.removeEventListener('keydown',keys,true);parent.removeEventListener('cancel',cancel,true);parent.removeEventListener('close',finish);viewport?.removeEventListener('resize',fit);viewport?.removeEventListener('scroll',fit);if(window.__TAURITAVERN_HANDLE_BACK__===back)window.__TAURITAVERN_HANDLE_BACK__=oldBack;layer.remove();for(const [el,inert] of blocked)el.inert=inert;previous?.isConnected&&previous.focus({preventScroll:true});};
+    const close=async()=>{try{await autosave.flush();finish();}catch(error){status.textContent=error.message;}};
+    const button=(label,run)=>{const b=n('button',label,'miao-button');b.type='button';b.onclick=()=>{void Promise.resolve().then(run).catch(error=>status.textContent=error.message);};actions.append(b);};
+    const replace=values=>{for(const [slot,input] of Object.entries(inputs))input.value=values[slot];autosave.schedule();return autosave.flush();};
+    button('恢复默认',()=>replace(defaults));button('恢复打开时内容',()=>replace(opened));button('重试保存',autosave.retry);button('完成',close);
+    card.append(n('h3','编辑 · '+label),n('p','有效修改会自动保存；完成或返回时等待保存确认。','miao-muted'),fields,status,actions);layer.append(card);parent.append(layer);
+    const cancel=event=>{event.preventDefault();event.stopImmediatePropagation();void close();},keys=event=>{if(event.key==='Escape')cancel(event);else if(event.key==='Tab'){const items=[...card.querySelectorAll('button,textarea')],first=items[0],last=items.at(-1);if(event.shiftKey&&document.activeElement===first||!event.shiftKey&&document.activeElement===last){event.preventDefault();(event.shiftKey?last:first).focus();}}else if(event.key==='Enter')event.stopPropagation();};
+    const viewport=window.visualViewport,fit=()=>layer.style.setProperty('--miao-editor-height',Math.max(180,(viewport?.height||innerHeight)-Math.max(0,parent.getBoundingClientRect().top-(viewport?.offsetTop||0))-16)+'px');fit();viewport?.addEventListener('resize',fit);viewport?.addEventListener('scroll',fit);
+    const observer=new MutationObserver(()=>{if(!layer.isConnected)finish();});observer.observe(parent,{childList:true});const oldBack=window.__TAURITAVERN_HANDLE_BACK__,back=()=>{void close();return true;};window.__TAURITAVERN_HANDLE_BACK__=back;parent.addEventListener('cancel',cancel,true);parent.addEventListener('close',finish);document.addEventListener('keydown',keys,true);layer.flush=autosave.flush;Object.values(inputs)[0].focus();return {element:layer,flush:autosave.flush};
 }

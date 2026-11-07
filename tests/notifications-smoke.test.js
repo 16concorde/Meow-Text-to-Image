@@ -14,7 +14,7 @@ test('native error toasts stay clickable above desktop modal and TT layers witho
   for(const [width,height] of [[1280,900],[390,844],[844,390]]){
    const mobile=width<700||height<500,page=await browser.newPage({viewport:{width,height}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
    await page.goto(url+'/?settings-smoke'+(mobile?'&tt':''));await page.locator('#miao-nai-menu').click();
-   if(mobile){if(await page.locator('.miao-drawer-back').isVisible())await page.locator('.miao-drawer-back').click();await page.getByRole('button',{name:'生图指令',exact:true}).click();}else await page.locator('.miao-tabs').getByRole('button',{name:'生图指令',exact:true}).click();
+   if(mobile){if(await page.locator('.miao-drawer-back').isVisible())await page.locator('.miao-drawer-back').click();await page.getByRole('button',{name:'提示词',exact:true}).click();}else await page.locator('.miao-tabs').getByRole('button',{name:'提示词',exact:true}).click();
    await page.evaluate(()=>{
     const original=toastr.error;toastr.error=(message,title,options)=>{original(message,title,options);const box=document.createElement('button');box.className='toast toast-error';box.style.cssText='display:block;background:#b22;color:white;padding:16px;max-width:280px;white-space:pre-wrap';const body=document.createElement('span');body.className='toast-message';body.textContent=message;box.append(body);box.onclick=()=>box.remove();document.getElementById('toast-container').append(box);return {addClass:name=>box.classList.add(name)};};window.preview.failSettingsSave=true;
    });

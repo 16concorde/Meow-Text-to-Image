@@ -1,10 +1,12 @@
+import {pixelPNG,pngBytes} from './support/vibe-fixtures.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {File} from 'node:buffer';
-import {createVibePackage,readVibeFiles,VIBE_FILE_LIMIT,VIBE_PACKAGE_LIMIT} from '../src/vibe/vibe-files.js';
+import {createVibePackage,readVibeFiles as readWithPreview,VIBE_FILE_LIMIT,VIBE_PACKAGE_LIMIT} from '../src/vibe/vibe-files.js';
 import {createDirectClient} from '../src/novelai/direct-client.js';
 
-const source={id:'00000000-0000-4000-8000-000000000001',name:'猫咪 / 氛围',image:'aW1hZ2U=',thumbnail:'data:image/png;base64,aW1hZ2U=',encodings:{'v4-5full':{full:{encoding:'YWJj',params:{information_extracted:0.7}}},v4full:{other:{encoding:'ZGVm',params:{information_extracted:0.4}}}},key:'private-key',url:'/user/private.json'};
+const readVibeFiles=(files,options={})=>readWithPreview(files,{...options,preparePreview:async item=>item});
+const source={id:'00000000-0000-4000-8000-000000000001',name:'猫咪 / 氛围',image:pixelPNG,thumbnail:'data:image/png;base64,'+pixelPNG,encodings:{'v4-5full':{full:{encoding:'YWJj',params:{information_extracted:0.7}}},v4full:{other:{encoding:'ZGVm',params:{information_extracted:0.4}}}},key:'private-key',url:'/user/private.json'};
 function zipEntry(name,bytes){
     return {name,internalStream(){const callbacks={};let stopped=false;return {on(event,fn){callbacks[event]=fn;return this;},pause(){stopped=true;},resume(){queueMicrotask(()=>{callbacks.data(bytes);if(!stopped)callbacks.end();});return this;}};}};
 }
@@ -20,10 +22,10 @@ test('Vibe ZIP contains portable data, unique safe filenames and no keys, IDs or
 });
 test('ZIP imports nested single and bundle files plus multiple input files, ignoring unrelated entries',async()=>{
     const entries=[zipEntry('nested/a.naiv4vibe',new TextEncoder().encode(JSON.stringify(source))),zipEntry('two.naiv4vibeBundle',new TextEncoder().encode(JSON.stringify({vibes:[source,source]}))),zipEntry('readme.txt',new TextEncoder().encode('ignore'))];
-    const files=[new File(['zip'],'包.zip'),new File([JSON.stringify(source)],'单个.json'),new File(['raw'],'图.png',{type:'image/png'})];
+    const files=[new File(['zip'],'包.zip'),new File([JSON.stringify(source)],'单个.json')];
     const items=await readVibeFiles(files,{loadZip:archiveLoader(entries)});
-    assert.equal(items.length,5);assert(items.slice(0,4).every(item=>item.name===source.name&&item.encodings.v4full.other.encoding==='ZGVm'));
-    assert.equal(items[4].image,'cmF3');assert.equal(items[4].name,'图');assert(items.every(item=>!item.id&&!item.key&&!item.url));
+    assert.equal(items.length,4);assert(items.slice(0,4).every(item=>item.name===source.name&&item.encodings.v4full.other.encoding==='ZGVm'));
+assert(items.every(item=>!item.id&&!item.key&&!item.url));
 });
 test('all input is validated before writes; corrupt JSON, UTF-8, empty ZIP and total counts reject',async()=>{
     await assert.rejects(readVibeFiles([new File([JSON.stringify(source)],'ok.json'),new File(['broken'],'bad.json')]),SyntaxError);
@@ -41,7 +43,7 @@ test('input and decompression budgets stop oversized files and compressed bombs'
 });
 test('export reads full saved Vibes; re-import preserves encodings and image without changing source or NAI calls',async()=>{
     const files=new Map(),requests=[],settings={};
-    const client=createDirectClient({settings,save(){},getHeaders:()=>({}),getKey:()=>{throw Error('must not access key');},fetchImpl:async(url,options={})=>{
+    const client=createDirectClient({settings,preparePreview:async item=>item,save(){},getHeaders:()=>({}),getKey:()=>{throw Error('must not access key');},fetchImpl:async(url,options={})=>{
         requests.push(url);
         if(url==='/api/files/upload'){const body=JSON.parse(options.body);files.set('/user/files/'+body.name,JSON.parse(Buffer.from(body.data,'base64').toString('utf8')));return Response.json({path:'/user/files/'+body.name});}
         if(files.has(url))return Response.json(files.get(url));
@@ -55,18 +57,18 @@ test('export reads full saved Vibes; re-import preserves encodings and image wit
     await assert.rejects(client.export([first.id,first.id]),/勾选/);await assert.rejects(client.export(['missing']),/删除/);
 });
 test('capacity is checked before upload and partial storage failures report saved count',async()=>{
-    let uploads=0;const settings={vibeLibrary:[]};
-    const client=createDirectClient({settings,save(){},getHeaders:()=>({}),fetchImpl:async(url,options)=>{
-        uploads++;if(uploads===2)return new Response('storage full',{status:500});
-        return Response.json({path:'/user/files/'+JSON.parse(options.body).name});
+    let uploads=0;const settings={vibeLibrary:[]},files=new Map();
+    const client=createDirectClient({settings,preparePreview:async item=>item,save(){},getHeaders:()=>({}),fetchImpl:async(url,options)=>{
+        if(url.startsWith('/user/files/'))return Response.json(files.get(url));uploads++;if(uploads===2)return new Response('storage full',{status:500});
+        const body=JSON.parse(options.body),path='/user/files/'+body.name;files.set(path,JSON.parse(Buffer.from(body.data,'base64').toString()));return Response.json({path});
     }});
     await assert.rejects(client.import({data:{vibes:[source,source]}}),/已导入 1 \/ 2/);assert.equal(settings.vibeLibrary.length,1);
-    settings.vibeLibrary=Array.from({length:128},()=>({}));uploads=0;
-    await assert.rejects(client.import({data:source}),/128/);assert.equal(uploads,0);
+    await assert.rejects(client.import({data:source}),/未确认/);settings.vibeLibrary=Array.from({length:128},()=>({}));uploads=0;
+    const full=createDirectClient({settings,preparePreview:async item=>item,save(){},getHeaders:()=>({}),fetchImpl:async()=>{uploads++;throw Error('must not upload');}});await assert.rejects(full.import({data:source}),/128/);assert.equal(uploads,0);
 });
 test('reopening settings cannot start a second import while the previous one is writing',async()=>{
-    let release,notify;let started=new Promise(resolve=>notify=resolve);const settings={},client=createDirectClient({settings,save(){},getHeaders:()=>({}),fetchImpl:async(url,options)=>{
-        const gate=new Promise(resolve=>release=resolve);notify();await gate;return Response.json({path:'/user/files/'+JSON.parse(options.body).name});
+    let release,notify;const files=new Map();let started=new Promise(resolve=>notify=resolve);const settings={},client=createDirectClient({settings,preparePreview:async item=>item,save(){},getHeaders:()=>({}),fetchImpl:async(url,options)=>{
+        if(url.startsWith('/user/files/'))return Response.json(files.get(url));const gate=new Promise(resolve=>release=resolve);notify();await gate;const body=JSON.parse(options.body),path='/user/files/'+body.name;files.set(path,JSON.parse(Buffer.from(body.data,'base64').toString()));return Response.json({path});
     }});
     const pending=client.import({data:source});await started;await assert.rejects(client.import({data:source}),/正在导入/);
     release();await pending;assert.equal(settings.vibeLibrary.length,1);

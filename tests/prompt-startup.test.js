@@ -1,3 +1,4 @@
+import {revision4Settings} from './support/revision4-settings.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -7,9 +8,9 @@ import {savePromptCandidate} from '../src/prompts/prompt-config-save.js';
 import {createPromptInjection} from '../src/platform/prompt-injection.js';
 const history=JSON.parse(readFileSync(new URL('./support/prompt-history-fixtures.json',import.meta.url)));
 test('real historical default shapes upgrade once and retain custom current slots over three restarts',()=>{
- for(const {config} of history){const before=structuredClone(config),next=migrateTreeSettings(config);assert.deepEqual(config,before);assert.equal(next.treeRevision,4);for(let i=0;i<3;i++)assert.deepEqual(migrateTreeSettings(JSON.parse(JSON.stringify(next))),next);}
+ for(const {config} of history){const before=structuredClone(config),next=migrateTreeSettings(config);assert.deepEqual(config,before);assert.equal(next.treeRevision,5);for(let i=0;i<3;i++)assert.deepEqual(migrateTreeSettings(JSON.parse(JSON.stringify(next))),next);}
  for(const revision of [undefined,1,2,3,4]){
-  const c=defaultTreeSettings();c.treeRevision=revision;c.orientation='GL';c.params.persona='{{user}}';c.nsfwTrigger.keywords=['Fixture'];c.tagMode='binding';c.enabledById.nsfw=true;c.textOverridesById={composition:{body:'CUSTOM'},selfcheck:{prefix:'CUSTOM CHECK\n<imgthink>',suffix:'</imgthink>\nEND'}};
+  const c=revision4Settings();c.treeRevision=revision;c.orientation='GL';c.params.count='3';c.nsfwTrigger.keywords=['Fixture'];c.tagMode='binding';c.enabledById.nsfw=true;c.textOverridesById={composition:{body:'CUSTOM'},selfcheck:{prefix:'CUSTOM CHECK\n<imgthink>',suffix:'</imgthink>\nEND'}};
   const next=migrateTreeSettings(c);assert.deepEqual(next.textOverridesById,c.textOverridesById);assert.equal(next.tagMode,'binding');assert.deepEqual(next.nsfwTrigger,c.nsfwTrigger);assert.equal(next.orientation,'GL');assert.equal(migrateTreeSettings(next),next);
  }
 });
@@ -29,7 +30,7 @@ test('binding cold start delays roster, stale loads cannot inject and generation
  settings.promptConfig.mode='external';await injection.reload();assert.equal(calls.at(-1),'');
 });
 test('current tree cleanup retains exact composed D0 and blocks conflicting retired bodies',()=>{
- const c=defaultTreeSettings();c.textOverridesById={'tags.full':{body:'CUSTOM TAG'}};c.legacyBackup={private:'obsolete'};c.treeBackup={};const expected=composePrompt(c),next=migrateTreeSettings(c);assert.equal(composePrompt(next),expected);assert.equal(next.legacyBackup,undefined);assert.equal(next.treeBackup,undefined);
+ const c=defaultTreeSettings();c.textOverridesById={'tags.full':{body:'CUSTOM TAG'}};c.legacyBackup={private:'obsolete'};c.treeBackup={};const expected=composePrompt(c),next=migrateTreeSettings(c);assert.equal(composePrompt(next),expected);assert.deepEqual(next.legacyBackup,c.legacyBackup);assert.deepEqual(next.treeBackup,c.treeBackup);
  const old={...c,treeRevision:1,textOverridesById:{tags:{body:'ONE'},'tags.rules':{body:'TWO'}}},before=structuredClone(old);assert.throws(()=>migrateTreeSettings(old),/冲突/);assert.deepEqual(old,before);
 });
 test('disabled binding tags keep other D0 modules without loading archives',async()=>{
@@ -43,7 +44,7 @@ test('custom legacy cot boundary is blocked rather than discarded',()=>{const ol
 test('pending migration cannot publish an unsafe runtime config through later chat events',async()=>{
  let ready=false;const calls=[];
  const injection=createPromptInjection({settings:{enabled:true,promptConfig:{mode:'builtin',version:1}},isReady:()=>ready,context:()=>({chat:[],setExtensionPrompt:(id,text)=>calls.push(text)}),onError:()=>assert.fail('pending legacy configuration must remain inactive')});
- await injection.reload();await injection.begin();injection.input();injection.reset();assert.ok(calls.every(t=>t===''));
+ await injection.reload();await assert.rejects(injection.begin(),/尚未确认/);injection.input();injection.reset();assert.ok(calls.every(t=>t===''));
 });
 test('candidate is detached and immutable during asynchronous persistence; late confirm runs once',async()=>{
  const input=defaultTreeSettings();input.params.persona='ORIGINAL';let candidate,confirm,release,commits=0;

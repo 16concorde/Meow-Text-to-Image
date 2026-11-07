@@ -1,8 +1,11 @@
+import {parseImageLayout,resolveImageDimensions,imageOrientations} from '../prompts/image-layout.js';
 import {resolveBindingPrompt} from '../prompts/character-binding-prompt.js';
 import {applyNovelAIPresets,resolvePresetId} from '../novelai/novelai-presets.js';
 import {parseNAICharacterSegments,scanNAIPipes} from '../prompts/multi-character.js';
-export const defaults = {name:'默认',positive:'best quality, masterpiece',positiveSuffix:'',negative:'lowres, bad anatomy, text, watermark',qualityPreset:'standard',ucPreset:'heavy',model:'nai-diffusion-4-5-full',sampler:'k_euler_ancestral',scheduler:'karras',width:512,height:512,steps:20,scale:5,seed:-1,varietyBoost:false,vibeMode:'multiple',vibeEnabled:true};
+export const defaults = {name:'默认',positive:'best quality, masterpiece',negative:'lowres, bad anatomy, text, watermark',qualityPreset:'standard',ucPreset:'heavy',model:'nai-diffusion-4-5-full',sampler:'k_euler_ancestral',scheduler:'karras',width:512,height:512,steps:20,scale:5,guidanceRescale:0,imageSizeMode:'fixed',imageOrientationFallback:'portrait',seed:-1,varietyBoost:false,vibeMode:'multiple',vibeEnabled:true};
 export function supportsVarietyBoost(model){return ['nai-diffusion-3','nai-diffusion-furry-3','nai-diffusion-4-full','nai-diffusion-4-curated-preview','nai-diffusion-4-5-full','nai-diffusion-4-5-curated'].includes(model);}
+export function supportsGuidanceRescale(model){return ['nai-diffusion-3','nai-diffusion-furry-3','nai-diffusion-4-full','nai-diffusion-4-curated-preview','nai-diffusion-4-5-full','nai-diffusion-4-5-curated'].includes(model);}
+export function effectiveGuidanceRescale(model,value=0){if(!['number','string'].includes(typeof value)||typeof value==='string'&&!value.trim()||!Number.isFinite(+value)||+value<0||+value>1)throw Error('Guidance Rescale 须为 0～1');return supportsGuidanceRescale(model)?+value:0;}
 export function varietyBoostSigma(request){
     if(request.variety_boost!==true||!supportsVarietyBoost(request.model))return null;
     // Match SillyTavern's NovelAI endpoint, including its resolution scaling.
@@ -11,7 +14,8 @@ export function varietyBoostSigma(request){
 export function normalizeProfile(profile) {
     const merged={...defaults,...profile};
     merged.positive=[merged.positive,merged.artists].filter(v=>typeof v==='string'&&v.trim()).map(v=>v.trim()).join(',\n');
-    merged.positiveSuffix=typeof merged.positiveSuffix==='string'?merged.positiveSuffix:'';
+    delete merged.positiveSuffix;
+    if(merged.guidanceRescale===undefined)merged.guidanceRescale=0;
     merged.qualityPreset=resolvePresetId(merged.model,'quality',merged.qualityPreset);
     merged.ucPreset=resolvePresetId(merged.model,'uc',merged.ucPreset);
     delete merged.artists;
@@ -53,7 +57,8 @@ export function parseBlocks(text, pattern = delimiterPattern('image###','###')) 
 // Markdown may split lines into paragraphs, or consume a hash-only closing line.
 // Keep offsets into the rendered text so a DOM Range replaces the original spot.
 export function renderedBlockRange(text,raw,startTag,endTag){
-    const exact=text.indexOf(raw);if(exact>=0)return {start:exact,end:exact+raw.length};
+    const xml=/<[^>]+>/.test(startTag+endTag);
+    const exact=text.indexOf(raw);if(exact>=0){if(xml&&text.indexOf(raw,exact+1)>=0)return null;return {start:exact,end:exact+raw.length};}
     const offsets=[];let compact='';
     for(let i=0;i<text.length;i++)if(!/\s/.test(text[i])){compact+=text[i];offsets.push(i);}
     const stripMarkdown=value=>String(value)
@@ -66,7 +71,7 @@ export function renderedBlockRange(text,raw,startTag,endTag){
         const candidates=[String(value),stripMarkdown(value)];
         for(const candidate of candidates){
             const needle=candidate.replace(/\s/g,'');if(!needle)continue;
-            const at=compact.indexOf(needle);if(at>=0)return {start:offsets[at],end:offsets[at+needle.length-1]+1};
+            const at=compact.indexOf(needle);if(at>=0&&xml&&compact.indexOf(needle,at+1)>=0)return null;if(at>=0)return {start:offsets[at],end:offsets[at+needle.length-1]+1};
         }
         return null;
     };
@@ -136,29 +141,30 @@ export function parseBodyBlocks(text,pattern,format={}){
     const original=String(text??''),previous=parseBlocks(original,pattern);
     return parseBlocks(maskReasoning(original,format),pattern)
         .filter(b=>original.slice(b.start,b.start+b.raw.length)===b.raw)
-        .map((b,bodyIndex)=>({...b,bodyIndex,index:previous.find(old=>old.start===b.start)?.index??b.index}));
+        .map((b,bodyIndex)=>{const layout=parseImageLayout(b.prompt);return {...b,prompt:layout.cleanPrompt,...(layout.metadataStatus!=='missing'?{layout}:{}),bodyIndex,index:previous.find(old=>old.start===b.start)?.index??b.index};});
 }
-export const sizePresets=[{name:'方图',width:1024,height:1024},{name:'竖图',width:832,height:1216},{name:'横图',width:1216,height:832}];
+export const sizePresets=[{name:'方图',width:1024,height:1024},{name:'竖图',...imageOrientations.portrait},{name:'横图',...imageOrientations.landscape}];
 export function delimiterPattern(start,end) {
     if(typeof start!=='string'||typeof end!=='string'||!start||!end)throw new Error('起始标签和结束标签都要填写喵');
     const escape=value=>value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     // Never use the closing portion of a NEW opening tag to close an older one.
     return `${escape(start)}((?:(?!${escape(start)})[\\s\\S])*?)${escape(end)}`;
 }
-export function buildRequest(profile, prompt, bindings=[]) {
-    const p = normalizeProfile(profile);
+export function buildRequest(profile, prompt, bindings=[],options={}) {
+    const parsed=parseImageLayout(prompt),layout=options.layout??parsed;if(parsed.metadataStatus==='blocked')throw Error(parsed.error);prompt=parsed.cleanPrompt;if(!prompt.trim())throw Error('图片 Tag 正文不能为空');
+    const source=normalizeProfile(profile),composition=resolveImageDimensions(source,{...options,layout}),p={...source,width:composition.width,height:composition.height};
     for (const key of ['width','height']) if (!Number.isInteger(+p[key]) || +p[key]<64 || +p[key]>2048 || +p[key]%64) throw new Error('宽高须为 64～2048 的 64 倍数');
     if (+p.width * +p.height > 2097152) throw new Error('画布总像素不能超过 2097152');
     if (!Number.isInteger(+p.steps) || +p.steps<1 || +p.steps>50) throw new Error('步数须为 1～50');
     if (!Number.isFinite(+p.scale) || +p.scale<0 || +p.scale>10) throw new Error('Guidance 须为 0～10');
     if (!Number.isInteger(+p.seed) || +p.seed < -1 || +p.seed > 4294967295) throw new Error('种子须为 -1 或 0～4294967295');
-    for(const value of [p.positive,p.positiveSuffix]){
+    for(const value of [p.positive]){
         const pipes=scanNAIPipes(value);
         if(pipes.separators.length)throw Error('请将多角色分隔符写入 AI 输出或本次图像提示词；配置正面只用于全局风格');
         if(pipes.unclosed)throw Error('配置正面中的 || 随机化段未闭合');
     }
     const segments=resolveBindingPrompt(prompt,p.model,bindings);
-    const positive=[p.positive,segments.base,p.positiveSuffix].map(s=>s.trim()).filter(Boolean).map(s=>s.endsWith(',')?s:`${s},`).join('\n');
+    const positive=[p.positive,segments.base].map(s=>s.trim()).filter(Boolean).map(s=>s.endsWith(',')?s:`${s},`).join('\n');
     const prepared=applyNovelAIPresets(p,positive,p.negative);
-    return {prompt:prepared.prompt,negative_prompt:prepared.negative,model:p.model,sampler:p.sampler,scheduler:p.scheduler,width:+p.width,height:+p.height,steps:+p.steps,scale:+p.scale,seed:+p.seed<0?Math.floor(Math.random()*4294967296):+p.seed,sm:false,sm_dyn:false,upscale_ratio:1,decrisper:false,variety_boost:p.varietyBoost===true&&supportsVarietyBoost(p.model),...(segments.hasCharacters?{naiCharacters:segments.characters,...(segments.used.length?{naiCharacterNegatives:segments.negatives}:{})}:{})};
+    return {...(!options.fixedSize&&(source.imageSizeMode==='ai'||layout.metadataStatus!=='missing'||options.history)?{imageLayout:composition}:{}),prompt:prepared.prompt,negative_prompt:prepared.negative,model:p.model,sampler:p.sampler,scheduler:p.scheduler,width:+p.width,height:+p.height,steps:+p.steps,scale:+p.scale,cfg_rescale:effectiveGuidanceRescale(p.model,p.guidanceRescale),seed:+p.seed<0?Math.floor(Math.random()*4294967296):+p.seed,sm:false,sm_dyn:false,upscale_ratio:1,decrisper:false,variety_boost:p.varietyBoost===true&&supportsVarietyBoost(p.model),...(segments.hasCharacters?{naiCharacters:segments.characters,...(segments.used.length?{naiCharacterNegatives:segments.negatives}:{})}:{})};
 }

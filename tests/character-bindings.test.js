@@ -1,3 +1,4 @@
+import {revision4Settings} from './support/revision4-settings.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {bindingIdentity,emptyBindingArchive,editBinding,validateBindingArchive,activeBindings,bindingSwitchKey,bindingRoster,SWITCH_KEY} from '../src/profiles/character-bindings.js';
@@ -34,7 +35,7 @@ test('02 choices stay mutually exclusive through parent switches and all old rev
  assert.ok(composeTreePrompt(c).includes(full));assert.ok(!composeTreePrompt(c).includes(bound));c.tagMode='binding';
  assert.ok(!composeTreePrompt(c).includes(full));assert.ok(composeTreePrompt(c,{bindingRoster:'U01 = Fixture'}).includes('U01 = Fixture'));
  c=withTreeEnabled(c,'tags',false);assert.ok(!composeTreePrompt(c).includes(bound));c=withTreeEnabled(c,'tags',true);assert.equal(c.tagMode,'binding');assert.ok(composeTreePrompt(c).includes(bound));
- for(const revision of [1,2,3]){const old={...defaultTreeSettings(),treeRevision:revision,textOverridesById:{tags:{body:'OLD CUSTOM'},composition:{body:'OTHER'}},nsfwTrigger:{keywords:['KEEP']}};const next=migrateTreeSettings(old);assert.equal(next.treeRevision,4);assert.equal(next.tagMode,'full');assert.equal(next.textOverridesById['tags.full'].body,'OLD CUSTOM');assert.equal(next.textOverridesById.composition.body,'OTHER');assert.deepEqual(next.nsfwTrigger.keywords,['KEEP']);assert.equal(next.textOverridesById.tags,undefined);}
+ for(const revision of [1,2,3]){const old={...revision4Settings(),treeRevision:revision,textOverridesById:{tags:{body:'OLD CUSTOM'},composition:{body:'OTHER'}},nsfwTrigger:{keywords:['KEEP']}};const next=migrateTreeSettings(old);assert.equal(next.treeRevision,5);assert.equal(next.tagMode,'full');assert.equal(next.textOverridesById['tags.full'].body,'OLD CUSTOM');assert.equal(next.textOverridesById.composition.body,'OTHER');assert.deepEqual(next.nsfwTrigger.keywords,['KEEP']);assert.equal(next.textOverridesById.tags,undefined);}
 });
 test('revision 1 blocks conflicting legacy tag texts without dropping either source',()=>{
  const old={...defaultTreeSettings(),treeRevision:1,textOverridesById:{tags:{body:'PARENT CUSTOM'},'tags.rules':{body:'RULES CUSTOM'}}};

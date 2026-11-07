@@ -1,0 +1,36 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {parseImageLayout,resolveImageDimensions,imageBlockIdentity,aiLayoutEnabled} from '../src/prompts/image-layout.js';
+import {selectGenerationProfile} from '../src/profiles/profile-selection.js';
+import {defaults,parseBodyBlocks,buildRequest,delimiterPattern} from '../src/core/core.js';
+import {editedTag} from '../src/prompts/tag-edit.js';
+import {sampleRequest,sampleSignature} from '../src/profiles/profile-previews.js';
+import {promptFileData,importPromptData} from '../src/prompts/prompt-files.js';
+import {defaultTreeSettings} from '../src/prompts/tree-settings.js';
+import {composeTreePrompt} from '../src/prompts/tree-composer.js';
+import {snapshotSlot} from '../src/profiles/character-bindings-session.js';
+import {treeById} from '../src/prompts/tree-defaults.js';
+const profile={...defaults,positive:'',negative:'',qualityPreset:'none',ucPreset:'none',seed:7,imageSizeMode:'ai'};
+test('only bounded first-line enum metadata is recognized; arbitrary parameters cannot control the request',()=>{
+ for(const [content,status,orientation,clean] of [['\n @orientation: LANDSCAPE\r\nscene | boy | girl','valid','landscape','scene | boy | girl'],['@orientation: portrait\n@orientation: portrait\nscene','valid','portrait','scene'],['@orientation: portrait\n\n@orientation: landscape\nscene','invalid',null,'scene'],['@orientation = portrait\nscene','invalid',null,'scene'],['@orientation: landscape, width:9000\nscene','invalid',null,'scene'],['portrait, landscape, wide shot','missing',null,'portrait, landscape, wide shot'],['scene\n@orientation: portrait','missing',null,'scene\n@orientation: portrait']]){const value=parseImageLayout(content);assert.equal(value.metadataStatus,status);assert.equal(value.orientation,orientation);assert.equal(value.cleanPrompt,clean);}
+ for(const value of ['@orientation: '+ 'x'.repeat(161)+'\nscene',Array(5).fill('@orientation: portrait').join('\n')+'\nscene']){assert.equal(parseImageLayout(value).metadataStatus,'blocked');assert.throws(()=>buildRequest(profile,value),/头部超过/);}
+ assert.throws(()=>buildRequest(profile,'@orientation: portrait\n'),/正文不能为空/);
+});
+test('AI uses only the two mapped sizes, fixed mode ignores enums, fallback and per-call overrides never mutate profiles',()=>{
+ const before=structuredClone(profile);for(const [orientation,width,height] of [['landscape',1216,832],['portrait',832,1216]]){const request=buildRequest(profile,'@orientation: '+orientation+'\nscene');assert.equal(request.width,width);assert.equal(request.height,height);assert.equal(request.prompt,'scene,');assert.equal(request.imageLayout.source,'model');}
+ const fallback=buildRequest(profile,'landscape, natural tag');assert.equal(fallback.width,832);assert.equal(fallback.height,1216);assert.equal(fallback.imageLayout.source,'fallback');assert.equal(buildRequest({...profile,imageOrientationFallback:'landscape'},'scene').width,1216);
+ const fixed=buildRequest({...profile,imageSizeMode:'fixed',width:640,height:512},'@orientation: portrait\nscene');assert.equal(fixed.width,640);assert.equal(fixed.imageLayout.orientation,'landscape');assert.equal(fixed.prompt,'scene,');const history=buildRequest(profile,'@orientation: portrait\nscene',[],{history:{width:1216,height:832}});assert.equal(history.width,1216);assert.equal(history.imageLayout.source,'history');const manual=buildRequest(profile,'scene',[],{history:{width:512,height:512},orientationOverride:'landscape'});assert.equal(manual.width,1216);assert.equal(manual.imageLayout.source,'manual');assert.throws(()=>resolveImageDimensions(profile,{orientationOverride:'{"width":9999}'}));assert.deepEqual(profile,before);
+});
+test('capture, reasoning exclusion, identity, exact duplicate occurrence editing and custom delimiters retain metadata',()=>{
+ const pattern=delimiterPattern('<draw>','</draw>'),text='<think><draw>@orientation: landscape\nnever</draw></think>\n<draw>@orientation: landscape\nsame | boy, ||a|b||</draw>\n<draw>@orientation: portrait\nsame | boy, ||a|b||</draw>',blocks=parseBodyBlocks(text,pattern);assert.equal(blocks.length,2);assert.equal(blocks[0].prompt,blocks[1].prompt);assert.notEqual(imageBlockIdentity(blocks[0]),imageBlockIdentity(blocks[1]));assert.notEqual(snapshotSlot(0,{...blocks[0],bodyIndex:0}),snapshotSlot(0,{...blocks[1],bodyIndex:0}));const edited=editedTag(text,blocks[1],'different | boy',pattern);assert.equal(edited.block.prompt,'different | boy');assert.equal(edited.block.layout.orientation,'portrait');assert.ok(edited.text.includes('<draw>@orientation: landscape\nsame | boy, ||a|b||</draw>'));assert.ok(edited.text.includes('<draw>@orientation: portrait\ndifferent | boy</draw>'));assert.throws(()=>editedTag(text,blocks[0],'@orientation: portrait\nnew',pattern),/只.*Tag 正文/);
+ const raw='image###\n@orientation: landscape\nscene\n###';for(let end=0;end<raw.length;end++)assert.equal(parseBodyBlocks(raw.slice(0,end)).length,0);assert.equal(parseBodyBlocks(raw)[0].layout.orientation,'landscape');
+});
+test('portable profiles retain policy; preview/test fixed paths stay square; injection adds protocol without changing templates',()=>{
+ const portable=importPromptData(promptFileData(profile));assert.equal(portable.imageSizeMode,'ai');assert.equal(portable.imageOrientationFallback,'portrait');assert.equal(importPromptData(promptFileData({...profile,imageSizeMode:undefined,imageOrientationFallback:undefined})).imageSizeMode,'fixed');assert.throws(()=>importPromptData({...promptFileData(profile),parameters:{...promptFileData(profile).parameters,imageOrientationFallback:'square'}}));assert.equal(sampleRequest(profile,[],'scene').width,512);assert.equal(sampleSignature(profile,[],'scene'),sampleSignature({...profile,imageSizeMode:'fixed'},[],'scene'));
+ const source=JSON.stringify(treeById),config=defaultTreeSettings(),plain=composeTreePrompt(config),withLayout=composeTreePrompt(config,{imageLayoutAI:true});assert.ok(!plain.includes('@orientation'));assert.ok(withLayout.includes('@orientation: landscape'));assert.equal(JSON.stringify(treeById),source);assert.equal(composeTreePrompt({...config,mode:'external'},{imageLayoutAI:true}),'');assert.equal(aiLayoutEnabled({profiles:[profile],active:0}),true);assert.equal(aiLayoutEnabled({profiles:[{...profile,imageSizeMode:'fixed'}],active:0}),false);
+});
+
+test('random and egg profiles apply only their own size policy and do not rewrite shared widths',()=>{
+ const fixed={...profile,id:'fixed',imageSizeMode:'fixed',width:640,height:512},ai={...profile,id:'ai',width:1024,height:1024},settings={profiles:[fixed,ai],active:0,profileSelectionMode:'random',randomProfileIds:['fixed','ai'],eggProfileEnabled:true,eggProfileId:'ai'},before=JSON.stringify(settings);
+ assert.equal(aiLayoutEnabled(settings),true);const content='@orientation: landscape\nscene';assert.equal(buildRequest(selectGenerationProfile(settings,{random:()=>0}).profile,content).width,640);assert.equal(buildRequest(selectGenerationProfile(settings,{random:()=>.9}).profile,content).width,1216);assert.equal(buildRequest(selectGenerationProfile(settings,{egg:true}).profile,content).width,1216);assert.equal(JSON.stringify(settings),before);
+});

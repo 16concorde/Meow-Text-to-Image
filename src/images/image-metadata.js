@@ -4,7 +4,7 @@ const latin1=bytes=>Array.from(bytes,byte=>String.fromCharCode(byte)).join('');
 const utf8=bytes=>new TextDecoder().decode(bytes);
 async function inflate(bytes,format='deflate'){
     if(typeof DecompressionStream!=='function')throw Error('当前浏览器无法解压此元数据');
-    return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format))).arrayBuffer());
+    const reader=new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format)).getReader(),chunks=[];let size=0;try{while(true){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>16*1024*1024){await reader.cancel();throw Error('元数据解压超过 16 MB');}chunks.push(value);}}finally{reader.releaseLock();}const result=new Uint8Array(size);let at=0;for(const chunk of chunks){result.set(chunk,at);at+=chunk.length;}return result;
 }
 function field(bytes,offset){
     const end=bytes.indexOf(0,offset);if(end<0)throw Error('元数据字段不完整');
@@ -13,12 +13,12 @@ function field(bytes,offset){
 export async function readImageMetadata(blob){
     const bytes=new Uint8Array(await blob.arrayBuffer()),result={format:blob.type||'unknown',text:[],chunks:[]};
     if(![137,80,78,71,13,10,26,10].every((byte,i)=>bytes[i]===byte))return result;
-    result.format='PNG';const data=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+    result.format='PNG';let textSize=0;const data=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
     for(let offset=8;offset<bytes.length;){
         if(offset+12>bytes.length)throw Error('PNG 数据块不完整');
         const length=data.getUint32(offset),type=latin1(bytes.subarray(offset+4,offset+8)),end=offset+12+length;
         if(end>bytes.length)throw Error('PNG 数据块长度无效');
-        const payload=bytes.subarray(offset+8,end-4);result.chunks.push({type,length});
+        if(result.chunks.length>=4096)throw Error('PNG 数据块过多');const payload=bytes.subarray(offset+8,end-4);result.chunks.push({type,length});
         if(type==='IHDR'){
             if(length!==13)throw Error('PNG 图片头无效');
             Object.assign(result,{width:data.getUint32(offset+8),height:data.getUint32(offset+12),bitDepth:payload[8],colorType:payload[9],compression:payload[10],filter:payload[11],interlace:payload[12]});
@@ -38,7 +38,7 @@ export async function readImageMetadata(blob){
                     entry.language=latin1(language.bytes);entry.translatedKeyword=utf8(translated.bytes);
                     const content=payload.subarray(translated.next);text=utf8(compressed?await inflate(content):content);
                 }
-                entry.text=text;try{entry.parameters=JSON.parse(text);}catch{}
+                textSize+=text.length;if(textSize>32*1024*1024)throw Error('PNG 文本元数据超过限制');entry.text=text;try{entry.parameters=JSON.parse(text);}catch{}
             }catch(error){entry.error=error.message;}
         }
         offset=end;if(type==='IEND')break;
@@ -91,6 +91,7 @@ const object=value=>value&&typeof value==='object'&&!Array.isArray(value)?value:
 export function generationInfo(metadata,savedRecord){
     const text=Object.fromEntries((metadata.text||[]).map(entry=>[entry.keyword,entry.parameters??entry.text]));
     const embedded=object(text.Comment),saved=object(savedRecord?.request),parameters={...saved,...embedded};
+    parameters.cfg_rescale??=0;
     const source=typeof text.Source==='string'?text.Source:'',match=Object.entries(models).find(([,model])=>model[1].some(hash=>source.endsWith(' '+hash)));
     const modelId=embedded.model||match?.[0]||saved.model||'',model=models[modelId]?.[0]||modelId||source||'未记录';
     const prompt=embedded.v4_prompt?.caption?.base_caption??embedded.prompt??text.Description??saved.v4_prompt?.caption?.base_caption??saved.prompt??'',negative=embedded.v4_negative_prompt?.caption?.base_caption??embedded.uc??embedded.negative_prompt??saved.v4_negative_prompt?.caption?.base_caption??saved.negative_prompt??'';

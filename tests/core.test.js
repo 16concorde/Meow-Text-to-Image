@@ -50,8 +50,6 @@ test('prompt boundaries reuse existing commas and terminate the generated scene'
   ['quality,','scene','quality,\nscene,'],
   ['quality,\n','scene,\n','quality,\nscene,'],
   ['','scene','scene,'],
-  ['quality,','','quality,'],
-  ['','',''],
   ['year 2025,\n1.5::original::,,','(girlA:1.2, source#glancing), indoor tension','year 2025,\n1.5::original::,,\n(girlA:1.2, source#glancing), indoor tension,'],
  ]){
   const profile={...defaults,positive,negative:'bad,',seed:42};
@@ -66,18 +64,18 @@ test('invalid sizes and generation parameters rejected before charging',()=>{
  for(const patch of [{width:513},{height:0},{steps:51},{width:2048,height:2048},{seed:-2},{scale:NaN}])assert.throws(()=>buildRequest({...defaults,...patch},'cat'));
 });
 
-test('legacy positive stays in front, suffix is empty by default and each request snapshots all three parts',()=>{
+test('legacy suffix is discarded while positive and scene retain their order',()=>{
  const old={qualityPreset:'none',ucPreset:'none',positive:'old style',artists:'artist',negative:'avoid',seed:42};
  const migrated=normalizeProfile(old);
- assert.equal(migrated.positive,'old style,\nartist');assert.equal(migrated.positiveSuffix,'');
+ assert.equal(migrated.positive,'old style,\nartist');assert.equal(migrated.positiveSuffix,undefined);
  assert.equal(migrated.vibeEnabled,true);
  const profile={...migrated,positive:'front,',positiveSuffix:'back,'};
  const request=buildRequest(profile,'scene');
  profile.positive='changed front';profile.positiveSuffix='changed back';
- assert.equal(request.prompt,'front,\nscene,\nback,');assert.equal(request.negative_prompt,'avoid');
- assert.equal(buildRequest({...migrated,positive:'',positiveSuffix:'tail'},'').prompt,'tail,');
+ assert.equal(request.prompt,'front,\nscene,');assert.equal(request.negative_prompt,'avoid');
+ assert.throws(()=>buildRequest({...migrated,positive:'',positiveSuffix:'tail'},''),/正文不能为空/);
  assert.equal(buildRequest({...migrated,positive:'front',positiveSuffix:'   '},'scene,').prompt,'front,\nscene,');
- assert.equal(buildRequest({...migrated,positive:'front',positiveSuffix:'1.2::style::,',model:'nai-diffusion-5-full'},'scene').prompt,'front,\nscene,\n1.2::style::,');
+ assert.equal(buildRequest({...migrated,positive:'front',positiveSuffix:'1.2::style::,',model:'nai-diffusion-5-full'},'scene').prompt,'front,\nscene,');
  assert.equal(buildRequest({...migrated,model:'nai-diffusion-5-curated'},'scene').model,'nai-diffusion-5-curated');
  assert.equal('positiveSuffix' in old,false);
 });

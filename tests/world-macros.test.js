@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {parseHeaderMacros,worldMacros,patchWorldMacros} from '../src/resources/world-macros.js';
-import {mergeWorldEntries} from '../src/resources/resources.js';
 const book=content=>({entries:{8:{uid:8,comment:'tag头',content,order:499,disable:false},9:{uid:9,comment:'其他',content:'不要改动'}}});
 const bundled=JSON.parse(await readFile(new URL('../assets/worldbook.json',import.meta.url),'utf8'));
 test('bundled header exposes real local/global variables without evaluating them',()=>{
@@ -30,13 +29,4 @@ test('invalid values never write an unterminated or escaped outer macro',()=>{
  assert.throws(()=>parseHeaderMacros('{{setvar::x::oops'),/未闭合/);
  assert.equal(worldMacros(original)[0].value,'ELLA');
 });
-test('official upgrades preserve existing macro values while adding new macros and replacing other content',()=>{
- const previous=book('{{setvar::人格::Custom}}\n{{setvar::对象::{{user}}}}');
- const incoming=book('{{setvar::人格::Default}}\n{{setvar::对象::User}}\n{{setvar::新宏::new}}');incoming.entries[9].content='new instructions';
- const next=mergeWorldEntries(previous,incoming,{preserveMacros:true}),fields=worldMacros(next);
- assert.equal(fields[0].value,'Custom');assert.equal(fields[1].value,'{{user}}');assert.equal(fields[2].value,'new');assert.equal(next.entries[9].content,'new instructions');
- assert.equal(worldMacros(mergeWorldEntries(previous,incoming))[0].value,'Default');
-});
-test('worlds without a header remain usable and are not modified by optional preservation',()=>{
- const empty={entries:{}};assert.deepEqual(mergeWorldEntries(empty,empty,{preserveMacros:true}),empty);assert.deepEqual(worldMacros(empty),[]);
-});
+test('worlds without a header remain readable',()=>{assert.deepEqual(worldMacros({entries:{}}),[]);});

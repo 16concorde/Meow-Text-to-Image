@@ -1,3 +1,4 @@
+import {pixelPNG} from './support/vibe-fixtures.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {LeaseQueue} from '../queue-service/queue.mjs';
@@ -192,7 +193,7 @@ test('new direct-image response releases before an indefinitely blocked ZIP and 
 test('Vibe encoding keeps its 180s local budget and bounded protection when the host ignores abort',async t=>{
  t.mock.timers.enable({apis:['setTimeout']});
  const {createDirectClient}=await import('../src/novelai/direct-client.js');
- const id='12345678-1234-1234-1234-123456789abc',item={id,name:'fixture',image:'YQ==',encodings:{}};let entered,signal;
+ const id='12345678-1234-1234-1234-123456789abc',item={id,name:'fixture',image:pixelPNG,encodings:{}};let entered,signal;
  const attempted=new Promise(r=>entered=r),q=new LeaseQueue({now:()=>0});
  const direct=createDirectClient({settings:{vibeLibrary:[{id}]},save(){},getHeaders:()=>({}),getKey:async()=>'fixture',unzipPNG:async()=>'',fetchImpl:async(url,opts)=>{
   if(url.startsWith('/user/files/'))return Response.json(item);signal=opts.signal;entered();return new Promise(()=>{});
@@ -205,7 +206,7 @@ test('Vibe encoding keeps its 180s local budget and bounded protection when the 
 });
 test('Vibe encoding local upload failure happens after finish and cannot retain the cloud slot',async()=>{
  const {createDirectClient}=await import('../src/novelai/direct-client.js');
- const id='12345678-1234-1234-1234-123456789abc',item={id,name:'fixture',image:'YQ==',encodings:{}};
+ const id='12345678-1234-1234-1234-123456789abc',item={id,name:'fixture',image:pixelPNG,encodings:{}};
  let entered,fail;const writing=new Promise(r=>entered=r),q=new LeaseQueue();
  const direct=createDirectClient({settings:{vibeLibrary:[{id}]},save(){},getHeaders:()=>({}),getKey:async()=>'fixture',unzipPNG:async()=>'',fetchImpl:async url=>{
   if(url.startsWith('/user/files/'))return Response.json(item);

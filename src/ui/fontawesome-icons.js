@@ -41,3 +41,11 @@ export async function loadHostIcons(fetchImpl=fetch){
     })();catalog=loading;
     try{return await loading;}catch(error){if(catalog===loading)catalog=undefined;throw error;}
 }
+
+// UI glyphs are host Font Awesome classes, never injected character substitutes.
+export const uiIcons=Object.freeze({close:'xmark',back:'chevron-left',expand:'chevron-right',collapse:'chevron-down',edit:'pencil'});
+export function uiIcon(name,doc=document){
+    if(!Object.values(uiIcons).includes(name))throw Error('未知界面图标');
+    const icon=doc.createElement('i');icon.className='fa-solid fa-'+name;icon.setAttribute('aria-hidden','true');return icon;
+}
+export function setUIIcon(button,name){button.replaceChildren(uiIcon(name,button.ownerDocument));}

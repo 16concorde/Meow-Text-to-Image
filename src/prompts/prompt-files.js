@@ -3,7 +3,7 @@ export const PROMPT_FILE_LIMIT=1024*1024;
 export const PROMPT_BUNDLE_LIMIT=20*1024*1024;
 export const PROMPT_BUNDLE_COUNT=100;
 export const PREVIEW_DATA_LIMIT=700*1024;
-const fields=['positive','positiveSuffix','negative'];
+const fields=['positive','negative'];
 const textParameters=['model','sampler','scheduler'],numberParameters=['width','height','steps','scale','seed'];
 function previewDimensions(mime,bytes){
     const u16=at=>bytes[at]*256+bytes[at+1],u32=at=>bytes[at]*16777216+bytes[at+1]*65536+bytes[at+2]*256+bytes[at+3];
@@ -20,7 +20,7 @@ function previewDimensions(mime,bytes){
 }
 function readParameters(source){
     if(!source||typeof source!=='object')throw Error('NAI 串文件缺少生成参数');
-    const parameters={};
+    const parameters={guidanceRescale:source.guidanceRescale??0,imageSizeMode:source.imageSizeMode??'fixed',imageOrientationFallback:source.imageOrientationFallback??'portrait'};
     for(const key of textParameters){if(typeof source[key]!=='string'||!source[key].trim()||source[key].length>128)throw Error('生成参数格式不正确');parameters[key]=source[key];}
     for(const key of numberParameters){const value=source[key];if(!['number','string'].includes(typeof value)||typeof value==='string'&&!value.trim()||!Number.isFinite(Number(value)))throw Error('生成参数格式不正确');parameters[key]=Number(value);}
     if(source.varietyBoost!==undefined&&typeof source.varietyBoost!=='boolean')throw Error('多样性参数格式不正确');
@@ -29,7 +29,7 @@ function readParameters(source){
         if(source[key]!==undefined&&(typeof source[key]!=='string'||source[key].length>40))throw Error('官网预设参数格式不正确');
         parameters[key]=source[key]??defaults[key];
     }
-    buildRequest({...defaults,...parameters},'');
+    buildRequest({...defaults,...parameters},'validation',[],{fixedSize:true});
     return parameters;
 }
 export function readPreviewData(preview){
@@ -58,7 +58,7 @@ export function importPromptData(data,profiles=[]){
     const base=typeof data.name==='string'&&data.name.trim()?data.name.trim().slice(0,120):'导入配置';
     const names=new Set(profiles.map(profile=>profile.name));let name=base,n=2;while(names.has(name))name=`${base} (${n++})`;
     // Whitelist prompt and generation fields; never import Vibes or credentials.
-    return {...structuredClone(defaults),...parameters,name,positive:data.prompts.positive,positiveSuffix:data.prompts.positiveSuffix,negative:data.prompts.negative,vibes:[],vibeEnabled:false};
+    return {...structuredClone(defaults),...parameters,name,positive:data.prompts.positive,negative:data.prompts.negative,vibes:[],vibeEnabled:false};
 }
 export async function readPromptFile(file,profiles=[],{restorePreview}={}){
     if(file.size>PROMPT_FILE_LIMIT)throw Error('NAI 串文件不能超过 1 MB');

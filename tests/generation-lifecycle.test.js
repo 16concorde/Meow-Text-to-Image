@@ -1,3 +1,4 @@
+import {pixelPNG} from './support/vibe-fixtures.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {prepareGeneration,sendPrepared} from '../src/generation/generation-lifecycle.js';
@@ -11,7 +12,7 @@ test('hung key and Vibe reads time out before joining; ignored abort and late da
  for(const kind of ['key','vibe']){
   let late,sent=0,joined=0;
   const id='12345678-1234-1234-1234-123456789abc';
-  const client=createDirectClient({settings:{vibeLibrary:[{id}]},save(){},getHeaders:()=>({}),getKey:()=>kind==='key'?new Promise(r=>late=r):Promise.resolve('fixture'),unzipPNG:async()=>'',fetchImpl:async url=>{
+  const client=createDirectClient({settings:{vibeLibrary:[{id}]},save(){},getHeaders:()=>({}),getKey:()=>kind==='key'?new Promise(r=>late=r):Promise.resolve('fixture'),unzipPNG:async()=>'',fetchImpl:async(url,options)=>{
    if(url.startsWith('/user/files/'))return new Promise(r=>late=r);sent++;return new Response('zip');
   }});
   const operation=async()=>{const prepared=await prepareGeneration(()=>client.prepareGenerate({vibes:kind==='vibe'?[{id}]:[]}),{timeoutMs:5});joined++;return sendPrepared(prepared);};
@@ -36,17 +37,17 @@ test('full response releases before slow ZIP, image save and chat save; local po
  await ready;assert.deepEqual(events,['send','body','release','zip']);await new Promise(r=>setTimeout(r,10));resume();assert.equal(await pending,'image');
 });
 test('Vibe encode cache bypasses key lookup and send; uncached encoding releases before local read/write',async()=>{
- const id='12345678-1234-1234-1234-123456789abc',item={id,name:'fixture',image:'YQ==',encodings:{'v4-5full':{'miao-1':{encoding:'YQ==',params:{information_extracted:1}}}}};
+ const id='12345678-1234-1234-1234-123456789abc',item={id,name:'fixture',image:pixelPNG,encodings:{'v4-5full':{'miao-1':{encoding:'YQ==',params:{information_extracted:1}}}}};
  const events=[];
- const client=createDirectClient({settings:{vibeLibrary:[{id}]},save(){},getHeaders:()=>({}),getKey:async()=>{events.push('key');return 'fixture';},unzipPNG:async()=>'',fetchImpl:async url=>{
+ const client=createDirectClient({settings:{vibeLibrary:[{id}]},save(){},getHeaders:()=>({}),getKey:async()=>{events.push('key');return 'fixture';},unzipPNG:async()=>'',fetchImpl:async(url,options)=>{
   if(url.startsWith('/user/files/')){events.push('read');return Response.json(item);}
   if(url.endsWith('encode-vibe')){events.push('encode');return new Response('encoded');}
-  events.push('write');return Response.json({path:'user/files/miao-vibe-'+id+'.json'});
+  events.push('write');Object.assign(item,JSON.parse(Buffer.from(JSON.parse(options.body).data,'base64').toString()));return Response.json({path:'user/files/miao-vibe-'+id+'.json'});
  }});
  assert.equal((await client.prepareEncode({id,model:'nai-diffusion-4-5-full',information:1})).cached,true);assert.deepEqual(events,['read']);
  events.length=0;const prepared=await prepareGeneration(()=>client.prepareEncode({id,model:'nai-diffusion-4-5-full',information:.5}));
  await sendPrepared(prepared,{onResponse:async()=>events.push('release'),timeoutMs:180000});
- assert.deepEqual(events,['read','key','encode','release','read','write']);
+ assert.deepEqual(events,['read','key','encode','release','read','read','write','read']);
 });
 
 test('elapsed budget tolerates wall-clock rollback and monotonic clocks stopping during background sleep',async()=>{

@@ -1,3 +1,4 @@
+import {revision4Settings} from './support/revision4-settings.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
@@ -12,7 +13,7 @@ test('actual entry waits without blocking module load, then persists once across
  const url=await new Promise((resolve,reject)=>{let output='';const timer=setTimeout(()=>reject(Error(output||'server timeout')),10000);server.stderr.on('data',d=>output+=d);server.stdout.on('data',d=>{const match=String(d).match(/http:\/\/[^\s]+/);if(match){clearTimeout(timer);resolve(match[0]);}});server.on('exit',()=>{clearTimeout(timer);reject(Error(output));});});
  const control=async(id,data)=>{const res=await fetch(url+'/fixture-settings/'+id,data?{method:'POST',body:JSON.stringify(data)}:{});return res.json();};
  browser=await chromium.launch({channel:process.env.MIAO_BROWSER_CHANNEL||'chrome',headless:true});
- const old=defaultTreeSettings();old.treeRevision=3;old.params.persona='SERVER_CUSTOM {{user}}';old.textOverridesById={composition:{body:'SERVER_BODY'},selfcheck:{prefix:'CUSTOM\n<imgthink>',suffix:'</imgthink>\nEND'}};old.enabledById.nsfw=true;old.nsfwTrigger.keywords=['SYNTHETIC'];old.orientation='GL';
+ const old=revision4Settings();old.treeRevision=3;old.params.count='3';old.textOverridesById={composition:{body:'SERVER_BODY'},selfcheck:{prefix:'CUSTOM\n<imgthink>',suffix:'</imgthink>\nEND'}};old.enabledById.nsfw=true;old.nsfwTrigger.keywords=['SYNTHETIC'];old.orientation='GL';
  const expected=migrateTreeSettings(old);
  await control('cycles',{settings:{extension_settings:{miao_nai_image:{promptConfig:old}}},reset:true});
  const errors=[];
@@ -25,8 +26,8 @@ test('actual entry waits without blocking module load, then persists once across
   if(cycle>0)assert.equal(await page.evaluate(()=>window.preview.saveCalls||0),0);
   if(cycle===0)assert.deepEqual((await control('cycles')).settings.extension_settings.miao_nai_image.promptConfig,expected);
   if(cycle===1){
-   await page.locator('#miao-nai-menu').click();await page.locator('.miao-tabs').getByRole('button',{name:'生图指令',exact:true}).click();await page.getByRole('button',{name:'编辑画面组成',exact:true}).click();
-   const editor=page.locator('.miao-prompt-editor');await editor.getByRole('textbox').fill('SERVER_BODY_EDITED');await editor.getByRole('button',{name:'保存',exact:true}).click();await editor.waitFor({state:'detached'});
+   await page.locator('#miao-nai-menu').click();await page.locator('.miao-tabs').getByRole('button',{name:'提示词',exact:true}).click();await page.getByRole('button',{name:'编辑画面组成',exact:true}).click();
+   const editor=page.locator('.miao-prompt-editor');await editor.getByRole('textbox').fill('SERVER_BODY_EDITED');await editor.getByRole('button',{name:'完成',exact:true}).click();await editor.waitFor({state:'detached'});
   }
   if(cycle===2)assert.ok(await page.evaluate(()=>window.preview.injections.miao_nai_image_instruction.text.includes('SERVER_BODY_EDITED')));
   await context.close();
@@ -37,7 +38,7 @@ test('actual entry waits without blocking module load, then persists once across
   await control(id,{settings:{extension_settings:{miao_nai_image:{promptConfig:old}}},options,reset:true});
   const {page,context}=await open(id);await page.evaluate(()=>window.preview.completeSettings());await page.locator('#miao-nai-menu').waitFor();
   await page.waitForFunction(()=>window.preview.saveCalls>0);
-  if(written)await page.waitForFunction(()=>window.preview.settings.promptConfig.treeRevision===4);
+  if(written)await page.waitForFunction(()=>window.preview.settings.promptConfig.treeRevision===5);
   else{
    await page.waitForFunction(()=>window.miaoTestToasts.some(t=>t.message.includes('尚未确认')),{},{timeout:40000});
    assert.equal(await page.evaluate(()=>window.preview.settings.promptConfig.treeRevision),3);
@@ -46,7 +47,7 @@ test('actual entry waits without blocking module load, then persists once across
    await control(id,{options:{}});
    // A late successful debounced save confirms the owned dirty candidate.
    await page.evaluate(async()=>{const host=await import('/script.js');await host.saveSettings();});
-   await page.waitForFunction(()=>window.preview.settings.promptConfig.treeRevision===4);
+   await page.waitForFunction(()=>window.preview.settings.promptConfig.treeRevision===5);
   }
   assert.deepEqual((await control(id)).settings.extension_settings.miao_nai_image.promptConfig,expected);
   await context.close();
@@ -60,12 +61,12 @@ test('actual entry waits without blocking module load, then persists once across
  await control('failed-restart',{settings:{extension_settings:{miao_nai_image:{promptConfig:old}}},options:{status:500},reset:true});
  const failed=await open('failed-restart');await failed.page.evaluate(()=>window.preview.completeSettings());await failed.page.waitForFunction(()=>window.miaoTestToasts.some(t=>t.message.includes('尚未确认')));await failed.context.close();
  assert.deepEqual((await control('failed-restart')).settings.extension_settings.miao_nai_image.promptConfig,old);await control('failed-restart',{options:{}});
- const recovered=await open('failed-restart');await recovered.page.evaluate(()=>window.preview.completeSettings());await recovered.page.waitForFunction(()=>window.preview.settings.promptConfig.treeRevision===4);assert.deepEqual((await control('failed-restart')).settings.extension_settings.miao_nai_image.promptConfig,expected);await recovered.context.close();
+ const recovered=await open('failed-restart');await recovered.page.evaluate(()=>window.preview.completeSettings());await recovered.page.waitForFunction(()=>window.preview.settings.promptConfig.treeRevision===5);assert.deepEqual((await control('failed-restart')).settings.extension_settings.miao_nai_image.promptConfig,expected);await recovered.context.close();
  // Ready host still queues a temporary response-length override. The eventual payload must retain the candidate.
  await control('queued',{settings:{extension_settings:{miao_nai_image:{promptConfig:old}}},reset:true});
  const queued=await open('queued');await queued.page.evaluate(()=>{window.preview.temporaryOverride=true;void window.preview.completeSettings();});
  await queued.page.waitForFunction(()=>window.preview.saveCalls>0);assert.equal((await control('queued')).saves.length,0);
- await queued.page.evaluate(()=>window.preview.temporaryOverride=false);await queued.page.waitForFunction(()=>window.preview.settings.promptConfig.treeRevision===4);assert.deepEqual((await control('queued')).settings.extension_settings.miao_nai_image.promptConfig,expected);assert.equal(await queued.page.evaluate(()=>window.preview.calls.length),0);await queued.context.close();
+ await queued.page.evaluate(()=>window.preview.temporaryOverride=false);await queued.page.waitForFunction(()=>window.preview.settings.promptConfig.treeRevision===5);assert.deepEqual((await control('queued')).settings.extension_settings.miao_nai_image.promptConfig,expected);assert.equal(await queued.page.evaluate(()=>window.preview.calls.length),0);await queued.context.close();
  assert.deepEqual(errors,[]);
  }finally{await browser?.close();server.kill();}
 });

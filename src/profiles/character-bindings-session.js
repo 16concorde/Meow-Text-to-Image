@@ -1,9 +1,10 @@
+import {imageBlockIdentity} from '../prompts/image-layout.js';
 import {bindingIdentity,contextIdentity,ownerIdentity,activeBindings,bindingRoster,bindingSwitchKey,SWITCH_KEY,validateBindingArchive} from './character-bindings.js';
 import {bindingReferences,resolveBindingPrompt} from '../prompts/character-binding-prompt.js';
 import {randomId,sha256Sync} from '../platform/browser-crypto.js';
 
 export const SNAPSHOTS_KEY='miaoCharacterSnapshots';
-export const snapshotSlot=(swipe,block)=>JSON.stringify([swipe,block.bodyIndex,sha256Sync(block.prompt)]);
+export const snapshotSlot=(swipe,block)=>JSON.stringify([swipe,block.bodyIndex,sha256Sync(imageBlockIdentity(block))]);
 export function createCharacterBindingsSession({context,persona,storage,mode,models,management,chatSettings}){
     let loaded=null,loading=null,epoch=0,failure=null;
     const pending=new WeakMap(),unconfirmed=new WeakMap();
@@ -11,15 +12,15 @@ export function createCharacterBindingsSession({context,persona,storage,mode,mod
     const key=()=>contextIdentity(identity())+(management?management.host.scope():'');
     function current(){if(!loaded||loaded.key!==key())throw Error('角色绑定尚未加载或聊天已切换，请打开角色绑定页重载');if(management){const c=context(),native=c.characters?.[c.characterId]?.data?.extensions?.meow_t2i?.ownerId,card=loaded.entries.find(e=>e.archive.owner.type==='card');if(native&&card?.archive.owner.ownerId!==native)throw Error('角色卡所属身份已改变，请重新准备绑定');}return loaded;}
     function assertKey(expected){if(key()!==expected)throw Error('聊天、角色卡或用户设定已切换，请重试');}
-    function rows(){return activeBindings(current().entries.map(e=>e.archive),context().chatMetadata);}
+    function rows(){return activeBindings(current().entries.map(e=>e.archive),current().effectiveMetadata??context().chatMetadata);}
     async function load({fresh=false}={}){
         const captured=identity(),capturedKey=contextIdentity(captured)+(management?management.host.scope():'');
-        if(!fresh&&loaded?.key===capturedKey){try{return current();}catch{loaded=null;}}
+        if(!fresh&&loaded?.key===capturedKey){try{if(chatSettings?.effectiveMetadata)loaded.effectiveMetadata=await chatSettings.effectiveMetadata(loaded.entries);return current();}catch(error){loaded=null;throw error;}}
         if(!fresh&&loading?.key===capturedKey)return loading.promise;
         loaded=null;failure=null;const token=++epoch;
-        const promise=Promise.all(captured.owners.map(owner=>management?management.open({type:owner.type,locator:owner.stableKey,name:owner.label},{fresh}):storage.load(owner))).then(entries=>{
+        const promise=Promise.all(captured.owners.map(owner=>management?management.open({type:owner.type,locator:owner.stableKey,name:owner.label},{fresh}):storage.load(owner))).then(async entries=>{
             assertKey(capturedKey);if(epoch!==token)throw Error('角色绑定加载已过期');
-            loaded={key:capturedKey,identity:captured,entries};return current();
+            const effectiveMetadata=await chatSettings?.effectiveMetadata?.(entries);assertKey(capturedKey);loaded={key:capturedKey,identity:captured,entries,effectiveMetadata};return current();
         }).catch(error=>{if(epoch===token)failure=error;throw error;}).finally(()=>{if(loading?.promise===promise)loading=null;});
         loading={key:capturedKey,promise};return promise;
     }

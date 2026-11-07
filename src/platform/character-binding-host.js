@@ -37,6 +37,7 @@ export function createCharacterBindingHost({context,persona,account=()=>'',tt=()
             const event=c.eventTypes?.[name];if(!event)continue;const handler=(...args)=>{
                 let change={name,args};
                 if(name==='CHAT_RENAMED')Object.assign(change,{type:'card',locator:args[0]?.avatarId,oldChatFile:args[0]?.oldFileName?.replace(/\.jsonl$/,''),chatFile:args[0]?.newFileName?.replace(/\.jsonl$/,'')});
+                if(name==='CHAT_DELETED'){Object.assign(change,{type:'card',chatFile:typeof args[0]==='string'?args[0].replace(/\.jsonl$/,''):null});}
                 if(name==='CHARACTER_RENAMED')Object.assign(change,{type:'card',oldLocator:args[0],locator:args[1]});
                 if(name==='CHARACTER_DUPLICATED')Object.assign(change,{type:'card',oldLocator:args[0]?.oldAvatar,locator:args[0]?.newAvatar,duplicate:true});
                 if(name.startsWith('PERSONA_'))Object.assign(change,{type:'user',locator:typeof args[0]==='string'?args[0]:args[0]?.avatarId,oldLocator:args[0]?.duplicatedFromAvatarId,duplicate:!!args[0]?.duplicatedFromAvatarId});

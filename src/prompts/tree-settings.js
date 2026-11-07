@@ -1,23 +1,26 @@
+import {upgradeRevision4} from './tree-migration.js';
+import {validateCaptureProtocol} from './prompt-runtime-renderer.js';
 import {promptTree, treeById, orientations} from './tree-defaults.js';
 import {defaultNsfwKeywords,validateNsfwKeywords} from './nsfw-trigger.js';
 import {promptTemplates} from './prompt-templates.js';
 
-export const paramNames = Object.freeze({persona:'人格', target:'对象', count:'张数', eggMarker:'彩蛋标签'});
+export const paramNames = Object.freeze({count:'张数', eggMarker:'彩蛋位置'});
 export function defaultTreeSettings(mode = 'builtin') {
-    return {version:2, treeRevision:4, tagMode:'full', mode, nsfwTrigger:{keywords:[...defaultNsfwKeywords]}, params:{persona:'ELLA', target:'User', count:'2~3', eggMarker:'/meow_FM'},
+    return {version:2, treeRevision:5, tagMode:'full', mode, flags:{fan:true}, injection:{depth:0}, capture:{start:'image###',end:'###'}, nsfwTrigger:{keywords:[...defaultNsfwKeywords]}, params:{count:'2~3', eggMarker:'/meow_FM'},
         enabledById:Object.fromEntries(promptTree.filter(n => n.toggleable).map(n => [n.nodeId, n.defaultEnabled])),
         textOverridesById:{}, orientation:''};
 }
 
 function hasLegacyCustomizations(config) {
-    return config?.version === 1 && (config.fixed?.cot_xml!==undefined&&config.fixed.cot_xml!=='star_cot'||Object.entries(config.overrides || {}).some(([key, text]) => text !== promptTemplates[key]?.content));
+    return config?.version === 1 && (config.fixed?.人格!==undefined&&config.fixed.人格!=='ELLA'||config.fixed?.对象!==undefined&&config.fixed.对象!=='User'||config.fixed?.cot_xml!==undefined&&config.fixed.cot_xml!=='star_cot'||Object.entries(config.overrides || {}).some(([key, text]) => text !== promptTemplates[key]?.content));
 }
 
 // One-time upgrades only; unsplittable historical documents remain untouched and blocked.
 export function migrateTreeSettings(config) {
     if (!config) return defaultTreeSettings();
     if (config.version === 2) {
-        if (config.treeRevision === 4) { validateTreeSettings(config); const keys=['legacyBackup','treeBackup','treeUpgradeBackup'];if(!keys.some(k=>Object.hasOwn(config,k)))return config;const next={...config};for(const key of keys)delete next[key];return next; }
+        if (config.treeRevision === 5) {validateTreeSettings(config);if(Object.hasOwn(config.injection,'order'))return {...config,injection:{depth:config.injection.depth}};return config;}
+        if (config.treeRevision === 4) return migrateTreeSettings(upgradeRevision4(config));
         if (config.treeRevision === 3) {
             const next={...config,treeRevision:4,tagMode:config.tagMode??'full',textOverridesById:structuredClone(config.textOverridesById||{})};
             if(next.textOverridesById.tags?.body!==undefined){
@@ -47,6 +50,7 @@ export function migrateTreeSettings(config) {
     if (hasLegacyCustomizations(config)) throw Error('旧版自定义全文无法无损拆分，原配置未覆盖；请从宿主设置备份提取正文后转换到新版条目');
     const next = defaultTreeSettings(config.mode);
     for (const [key, name] of Object.entries(paramNames)) if (typeof config.fixed?.[name] === 'string') next.params[key] = config.fixed[name];
+    if(typeof config.fixed?.彩蛋标签==='string')next.params.eggMarker=config.fixed.彩蛋标签;
     const modules = {selfCheck:'selfcheck', easterEgg:'egg', subtitle:'output.subtitle', easterEggDescription:'egg.description', nsfw:'nsfw'};
     for (const [key, id] of Object.entries(modules)) if (typeof config.modules?.[key] === 'boolean') next.enabledById[id] = config.modules[key];
     next.orientation = String(config.orientation || '').toUpperCase();
@@ -57,9 +61,14 @@ export function migrateTreeSettings(config) {
 
 export function validateTreeSettings(config) {
     if (!['full','binding'].includes(config.tagMode)) throw Error('Tag 模式无效');
-    if (config.treeRevision!==4 || config.version !== 2 || !['builtin','external'].includes(config.mode) || !orientations.includes(config.orientation)) throw Error('提示词配置无效');
+    if (config.treeRevision!==5 || config.version !== 2 || !['builtin','external'].includes(config.mode) || !orientations.includes(config.orientation)) throw Error('提示词配置无效');
     if (!config.nsfwTrigger || typeof config.nsfwTrigger !== 'object') throw Error('NSFW 触发配置无效，原配置已保留');
     validateNsfwKeywords(config.nsfwTrigger.keywords);
+    if(typeof config.flags?.fan!=='boolean')throw Error('同人开关无效');
+    const {depth}=config.injection||{};
+    if(!Number.isInteger(depth)||depth<0||depth>10000)throw Error('注入位置需为有效整数，深度范围为 0～10000');
+    validateCaptureProtocol(config.capture,config.params?.eggMarker);
+    if(!config.params?.count?.trim()||!config.params?.eggMarker?.trim()||/[\r\n\u0000-\u001f]/.test(config.params.eggMarker))throw Error('张数与彩蛋位置不可为空，位置必须为单行');
     for (const key of Object.keys(paramNames)) {
         if (typeof config.params?.[key] !== 'string' || config.params[key].length > 16000) throw Error('任务参数需为不超过 16000 字符的文本');
     }
@@ -72,6 +81,7 @@ export function validateTreeSettings(config) {
     return config;
 }
 function validateText(id, slot, text) {
+    if (treeById[id]?.editable===false) throw Error('固定任务不可编辑');
     if (!treeById[id] || !Object.hasOwn(treeById[id].slots, slot)) throw Error('未知提示词正文');
     if (typeof text !== 'string' || text.length > 100000) throw Error('提示词需为不超过 100000 字符的文本');
     if (/<\/?imageTag\b/i.test(text)) throw Error('imageTag 外壳由插件固定提供，请勿写入条目正文');
@@ -97,7 +107,7 @@ export function savedEnabled(config, id) {
 }
 export function effectiveEnabled(config, id) {
     const node = treeById[id];
-    if (id==='tags.full' && config.tagMode!=='full' || id==='tags.binding' && config.tagMode!=='binding') return false;
+    if(node.tagMode&&config.tagMode!==node.tagMode||node.flag&&!config.flags?.[node.flag])return false;
     if (!savedEnabled(config, id)) return false;
     if (node.parentId && !effectiveEnabled(config, node.parentId)) return false;
     if (node.condition?.some(key => !effectiveEnabled(config, key))) return false;
@@ -112,7 +122,7 @@ export function promptWarnings(config, startTag, endTag) {
     if (config.version !== 2) return [];
     const warnings = [];
     if (Object.values(config.params).some(value => /\{\{/.test(value)) || Object.values(config.textOverridesById || {}).some(slots => Object.values(slots).some(value => /\{\{/.test(value)))) warnings.push('内容含酒馆宏：插件按原文保留，不解析变量；最终行为取决于宿主与预设。');
-    if (startTag !== 'image###' || endTag !== '###') warnings.push('当前捕捉标签与内置 image### / ### 格式不一致，可能无法识别图片；请核对捕捉标签和输出正文。');
+    if ((startTag !== 'image###' || endTag !== '###') && Object.keys(config.textOverridesById||{}).length) warnings.push('自定义正文请核对捕捉协议；无法识别的格式需手动适配。');
     if (config.textOverridesById?.['output.format']?.body !== undefined) warnings.push('图片标签结构已自定义，请核对实际输出与捕捉标签；插件不会自动改写正文。');
     return warnings;
 }
@@ -123,4 +133,9 @@ export function withNsfwKeywords(config, keywords) {
     try { validateNsfwKeywords(config.nsfwTrigger?.keywords); }
     catch { candidate.nsfwTriggerBackup = structuredClone(config.nsfwTrigger ?? null); }
     return migrateTreeSettings(candidate);
+}
+
+// Historical storage is retained verbatim, but never participates in active prompt comparisons.
+export function promptConfigForComparison(config){
+    if(!config)return config;const result={...config};delete result.migrationArchive;return result;
 }

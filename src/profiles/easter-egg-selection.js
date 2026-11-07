@@ -19,6 +19,7 @@ export function parseGenerationBody(text,pattern,format={},marker=''){
 export function generationCandidates(parsed,{streaming=false,eggEnabled=false}={}){
     const last=parsed.blocks.at(-1);
     return parsed.blocks.flatMap(block=>{
+        if(!block.prompt.trim()||block.layout?.metadataStatus==='blocked')return [];
         // A later token can add another separator/tag. Keep just the tail until
         // completion even with an explicit marker, so ambiguous output is safe.
         if(eggEnabled&&streaming&&block===last)return [];
@@ -35,7 +36,7 @@ export function createEggMarkerCache({read,key}){
         read(){
             const current=key();
             if(!cached||cached.key!==current||cached.revision!==revision){
-                cached={key:current,revision,promise:Promise.resolve().then(read).then(snapshot=>snapshot.macros.findLast(m=>['setvar','parameter'].includes(m.scope)&&m.name==='彩蛋标签')?.value.trim()||'').catch(()=>'')};
+                cached={key:current,revision,promise:Promise.resolve().then(read).then(snapshot=>snapshot.macros.findLast(m=>['setvar','parameter'].includes(m.scope)&&(m.id==='eggMarker'||m.name==='彩蛋标签'))?.value.trim()||'').catch(()=>'')};
             }
             return cached.promise;
         },

@@ -32,8 +32,3 @@ export function patchWorldMacros(book,baseline,values){
     for(const patch of patches.sort((a,b)=>b.start-a.start))entry.content=entry.content.slice(0,patch.valueStart)+patch.value+entry.content.slice(patch.end-2);
     return copy;
 }
-export function preserveWorldMacros(previous,incoming){
-    const existing=new Map(worldMacros(previous).map(item=>[item.id,item.value])),fresh=worldMacros(incoming);
-    if(!fresh.length||!existing.size)return incoming;
-    return patchWorldMacros(incoming,fresh,Object.fromEntries(fresh.filter(item=>existing.has(item.id)).map(item=>[item.id,existing.get(item.id)])));
-}
