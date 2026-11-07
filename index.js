@@ -1,4 +1,4 @@
-import {imageBlockIdentity,resolveImageDimensions,aiLayoutEnabled} from './src/prompts/image-layout.js';
+import {imageBlockIdentity,aiLayoutEnabled} from './src/prompts/image-layout.js';
 import {panelSettingsPatch} from './src/platform/panel-settings-patches.js';
 import {bindSettingsShell} from './src/ui/settings-shell.js';
 import * as bindingHostScript from '../../../../script.js';
@@ -23,7 +23,7 @@ import {fingerprintKey,runWithQueue,validateQueueURL} from './src/queue/cloud-qu
 import {randomId} from './src/platform/browser-crypto.js';
 import {createThumbnails,imageBlob,blobBase64,localImagePath,makeThumbnail} from './src/images/image-thumbnails.js';
 import {createFavorites,validateFavorite,favoritesEnabled,FAVORITE_FOLDER,FAVORITE_IMAGE_LIMIT} from './src/prompts/prompt-favorites.js';
-import {generationOptions,migrateGenerationOptions,migrateGenerationMode,runGenerationTask,refreshHistoricalBindingRequest} from './src/generation/generation-options.js';
+import {generationOptions,migrateGenerationOptions,migrateGenerationMode,runGenerationTask} from './src/generation/generation-options.js';
 import {waitForGeneration} from './src/generation/generation-delay.js';
 import {showPagePopup} from './src/ui/page-popup.js';
 import {showPanelPage} from './src/ui/panel-page.js';
@@ -354,15 +354,13 @@ async function startGeneration(message,block,{automatic=false,egg=false}={}) {
     const bound=bindingReferences(block.prompt).length>0;
     if(bound)captureBindingTags();
     if(bound)await characterBindings.settled(message,block);
-    const previous=state(message,key);
-    const historical=bound&&previous?.request&&previous.tagPrompt===block.prompt;
+    // A reroll is a new generation with the currently selected profile.
+    // Old requests stay immutable inside their image history versions.
     const bindings=bound?await characterBindings.resolveLatest(message,block):undefined;
-    const seedProfile=historical?(settings.profiles.find(p=>p.id===previous.profileId)??profile):profile;
-    const request=historical?refreshHistoricalBindingRequest(previous.request,block.prompt,bindings,seedProfile.seed):buildRequest(profile,block.prompt,bindings,{layout:block.layout,history:previous?.request});
-    if(historical)request.imageLayout=resolveImageDimensions(profile,{layout:block.layout,history:previous.request});
+    const request=buildRequest(profile,block.prompt,bindings,{layout:block.layout});
     if(chat!==currentChat()||!blocks(message).some(b=>b.raw===block.raw&&b.start===block.start))throw Error('聊天或 Tag 已切换，请重新生成');
     if(running.has(taskId))return running.get(taskId).promise;
-    if(!historical)request.vibes=selectVibes(profile,settings.vibeLibrary);
+    request.vibes=selectVibes(profile,settings.vibeLibrary);
     const storage={root:validateFolder(settings.folder),context:archiveContext(ctx())};
     attempted.add(taskId);
     const task={profileId,profileName,profileSource,profile,request,blockStart:block.start,blockRaw:block.raw,status:'排队中',...generationOptions(settings),message,key,chat,messageIndex:ctx().chat.indexOf(message),name:message.name,is_user:!!message.is_user,is_system:!!message.is_system,swipe:message.swipe_id??0,prompt:promptIdentity(block.prompt),contentIdentity:imageBlockIdentity(block),occurrence:blocks(message).filter(b=>imageBlockIdentity(b)===imageBlockIdentity(block)).findIndex(b=>b.start===block.start),previousRecord:state(message,key),toolsEpoch:imageToolsEpoch};

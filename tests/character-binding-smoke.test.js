@@ -56,13 +56,21 @@ test('actual binding UI, D0, chat switches and complete ungenerated history on d
    const snapshot=await page.evaluate(()=>structuredClone(window.preview.chat.at(-1).miaoCharacterSnapshots));
    await button('生成插图').click();await page.waitForFunction(()=>window.preview.calls.length===1);await page.locator('.miao-image-card img').waitFor();
    const payload=await page.evaluate(()=>window.preview.calls[0]);assert.equal(payload.parameters.width,1216);assert.equal(payload.parameters.height,832);assert.equal(payload.input.includes('@orientation'),false);assert.deepEqual(payload.parameters.characterPrompts.map(c=>c.uc),['blonde hair','black hair','']);assert.equal(payload.parameters.characterPrompts[1].prompt,'boy, silver hair, blue eyes, white shirt');assert.ok(!payload.input.includes('silver hair'));assert.deepEqual(await page.evaluate(()=>window.preview.chat.at(-1).miaoCharacterSnapshots),snapshot);
+   const originalVersion=await page.evaluate(()=>Object.values(window.preview.chat.at(-1).miao_nai_image_swipes[0])[0].versions[0]);
    await page.locator('#miao-nai-menu').click();await go('角色管理');await manage('card');await button('编辑 C01 Card Hero').click();await view.getByRole('textbox',{name:'固定正面',exact:true}).fill('boy, CHANGED APPEARANCE');await view.getByRole('textbox',{name:'固定负面',exact:true}).fill('LATEST CARD UC');await button('完成编辑').click();await view.locator('.miao-binding-editor').waitFor({state:'detached'});await page.locator('.miao-drawer-close').click();await page.locator('.miao-settings').waitFor({state:'detached'});
-   await page.evaluate(()=>Object.assign(window.preview.settings.profiles[window.preview.settings.active],{width:640,scale:8,seed:555,positive:'CHANGED GLOBAL'}));
+   await page.evaluate(()=>{const p=window.preview;p.settings.profileSelectionMode='single';p.settings.active=1;Object.assign(p.settings.profiles[1],{model:'nai-diffusion-4-5-curated',imageSizeMode:'fixed',width:640,height:512,scale:8,seed:555,steps:32,sampler:'k_dpmpp_2m',scheduler:'exponential',guidanceRescale:0.3,qualityPreset:'none',ucPreset:'none',positive:'CHANGED GLOBAL',negative:'CHANGED UC',vibeEnabled:true,vibes:[{id:p.settings.vibeLibrary[0].id,key:'hash',strength:0.35}]});p.vibeFiles['/user/files/miao-vibe-'+p.settings.vibeLibrary[0].id+'.json'].encodings['v4-5curated']={hash:{encoding:'ZGVm',params:{information_extracted:0.7}}};});
    await page.locator('.miao-image-card img').dblclick();await page.waitForFunction(()=>window.preview.calls.length===2);
    const fixedPayload=await page.evaluate(()=>window.preview.calls[1]);
+   assert.equal(fixedPayload.model,'nai-diffusion-4-5-curated');
+   assert.deepEqual([fixedPayload.parameters.width,fixedPayload.parameters.height],[640,512]);
+   assert.equal(fixedPayload.parameters.steps,32);assert.equal(fixedPayload.parameters.sampler,'k_dpmpp_2m');assert.equal(fixedPayload.parameters.noise_schedule,'exponential');assert.equal(fixedPayload.parameters.cfg_rescale,0.3);
+   assert.deepEqual(fixedPayload.parameters.reference_image_multiple,['ZGVm']);assert.deepEqual(fixedPayload.parameters.reference_strength_multiple,[0.35]);assert.ok(fixedPayload.parameters.negative_prompt.includes('CHANGED UC'));
    assert.equal(fixedPayload.parameters.seed,555);
-   const updated=structuredClone(payload);updated.parameters.characterPrompts[1].prompt='boy, CHANGED APPEARANCE, white shirt';updated.parameters.characterPrompts[1].uc='LATEST CARD UC';updated.parameters.v4_prompt.caption.char_captions[1].char_caption='boy, CHANGED APPEARANCE, white shirt';updated.parameters.v4_negative_prompt.caption.char_captions[1].char_caption='LATEST CARD UC';
-   assert.deepEqual({...fixedPayload,parameters:{...fixedPayload.parameters,seed:payload.parameters.seed}},updated);
+   assert.equal(fixedPayload.parameters.scale,8);
+   assert.ok(fixedPayload.input.includes('CHANGED GLOBAL'));
+   assert.equal(fixedPayload.parameters.characterPrompts[1].prompt,'boy, CHANGED APPEARANCE, white shirt');
+   assert.equal(fixedPayload.parameters.characterPrompts[1].uc,'LATEST CARD UC');
+   assert.equal(fixedPayload.parameters.v4_negative_prompt.caption.char_captions[1].char_caption,'LATEST CARD UC');
    assert.deepEqual(await page.evaluate(()=>window.preview.calls[0]),payload);assert.deepEqual(await page.evaluate(()=>window.preview.chat.at(-1).miaoCharacterSnapshots),snapshot);assert.equal(await button('重新关联绑定').count(),0);
    await page.waitForFunction(()=>document.querySelector('.miao-version-count')?.textContent==='2 / 2');
    // Keep consecutive user rerolls outside the existing 900ms gesture guard.
@@ -71,8 +79,12 @@ test('actual binding UI, D0, chat switches and complete ungenerated history on d
    await page.locator('.miao-image-card img').dblclick();await page.waitForFunction(()=>window.preview.calls.length===3);
    const randomPayload=await page.evaluate(()=>window.preview.calls[2]);
    assert.notEqual(randomPayload.parameters.seed,555);
-   assert.deepEqual({...randomPayload,parameters:{...randomPayload.parameters,seed:payload.parameters.seed}},updated);
+   assert.equal(randomPayload.input,fixedPayload.input);
+   assert.equal(randomPayload.parameters.scale,fixedPayload.parameters.scale);
+   assert.deepEqual(randomPayload.parameters.characterPrompts,fixedPayload.parameters.characterPrompts);
    await page.waitForFunction(()=>document.querySelector('.miao-version-count')?.textContent==='3 / 3');
+   assert.deepEqual({...randomPayload,parameters:{...randomPayload.parameters,seed:fixedPayload.parameters.seed}},fixedPayload);
+   assert.deepEqual(await page.evaluate(()=>Object.values(window.preview.chat.at(-1).miao_nai_image_swipes[0])[0].versions[0]),originalVersion);
    // Both automatic paths must persist the binding snapshot before a single POST.
    for(const mode of ['auto','stream']){
     const expected=mode==='auto'?4:5;
