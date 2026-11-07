@@ -2309,6 +2309,16 @@ img[data-miao-export-state=loading] {visibility: hidden;}
 .miao-character-bindings .miao-binding-icon { display:inline-grid; place-content:center; flex:0 0 44px; width:44px; height:44px; padding:0; font-size:17px; border:1px solid var(--mi-line); border-radius:8px; background:transparent; }
 .miao-character-bindings .miao-binding-viewport { min-height:0; max-height:min(50vh,480px); max-height:min(50dvh,480px); overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; }
 .miao-character-bindings .miao-owner-results { display:grid; gap:8px; max-height:min(56vh,560px); max-height:min(56dvh,560px); }
+/* Only object/chat selectors fill the remaining panel height. Editors keep body scrolling. */
+#miao-nai-settings>.miao-panel-body:has(>.miao-binding-selection) { overflow-y:hidden; }
+.miao-character-bindings.miao-binding-selection { flex:1 1 0; display:flex; flex-direction:column; }
+.miao-binding-selection>:is(.miao-owner-selector,.miao-binding-chat) { flex:1 1 0; min-height:0; min-width:0; display:flex; flex-direction:column; }
+.miao-binding-selection>[data-management-status],
+.miao-binding-selection>:is(.miao-owner-selector,.miao-binding-chat)>:not(.miao-binding-viewport) { flex:none; }
+.miao-character-bindings.miao-binding-selection .miao-binding-viewport { flex:1 1 0; max-height:none; min-width:0; overscroll-behavior:contain; }
+.miao-character-bindings.miao-binding-selection .miao-owner-results { align-content:start; grid-auto-rows:max-content; }
+.miao-character-bindings.miao-binding-selection .miao-binding-pages { flex:none; gap:8px; margin-top:10px; }
+.miao-character-bindings.miao-binding-selection .miao-binding-pages button { min-width:44px; padding:8px 12px; }
 .miao-character-bindings .miao-owner-row { display:flex; align-items:center; gap:12px; width:100%; min-height:80px; padding:12px; text-align:left; border:1px solid var(--mi-line); border-radius:10px; background:var(--mi-surface); color:inherit; cursor:pointer; }
 .miao-character-bindings .miao-owner-avatar { width:56px; height:56px; flex:0 0 56px; position:relative; overflow:hidden; border-radius:8px; display:grid; place-content:center; background:var(--mi-line); }
 .miao-character-bindings .miao-owner-avatar img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }

@@ -28,7 +28,7 @@ export function createCharacterBindingsView({session,settings,onError}){
     function back(){if(confirmation){confirmation('cancel');return true;}if(!stack.length)return false;if(navigating)return true;navigating=true;void (async()=>{try{if(!await guardLeave())return;route=stack.pop();paint();}finally{navigating=false;}})().catch(fail);return true;}
     const stateChanged=()=>root.dispatchEvent(new CustomEvent('miao-binding-save-state',{bubbles:true}));
     function paint(){
-        const token=++epoch;page?.dispose();page=null;root.replaceChildren();const status=n('p','','miao-muted');status.dataset.managementStatus='true';root.append(status);
+        const token=++epoch;page?.dispose();page=null;root.classList.toggle('miao-binding-selection',['select','chats'].includes(route.page));root.replaceChildren();const status=n('p','','miao-muted');status.dataset.managementStatus='true';root.append(status);
         try{
             const draft=draftFor(route);
             if(route.page==='home'){

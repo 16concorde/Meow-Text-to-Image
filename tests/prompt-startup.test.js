@@ -7,11 +7,11 @@ import {composePrompt} from '../src/prompts/prompt-composer.js';
 import {savePromptCandidate} from '../src/prompts/prompt-config-save.js';
 import {createPromptInjection} from '../src/platform/prompt-injection.js';
 const history=JSON.parse(readFileSync(new URL('./support/prompt-history-fixtures.json',import.meta.url)));
-test('real historical default shapes upgrade once and retain custom current slots over three restarts',()=>{
+test('historical configurations rebuild once and remain stable over three restarts',()=>{
  for(const {config} of history){const before=structuredClone(config),next=migrateTreeSettings(config);assert.deepEqual(config,before);assert.equal(next.treeRevision,5);for(let i=0;i<3;i++)assert.deepEqual(migrateTreeSettings(JSON.parse(JSON.stringify(next))),next);}
  for(const revision of [undefined,1,2,3,4]){
   const c=revision4Settings();c.treeRevision=revision;c.orientation='GL';c.params.count='3';c.nsfwTrigger.keywords=['Fixture'];c.tagMode='binding';c.enabledById.nsfw=true;c.textOverridesById={composition:{body:'CUSTOM'},selfcheck:{prefix:'CUSTOM CHECK\n<imgthink>',suffix:'</imgthink>\nEND'}};
-  const next=migrateTreeSettings(c);assert.deepEqual(next.textOverridesById,c.textOverridesById);assert.equal(next.tagMode,'binding');assert.deepEqual(next.nsfwTrigger,c.nsfwTrigger);assert.equal(next.orientation,'GL');assert.equal(migrateTreeSettings(next),next);
+  const next=migrateTreeSettings(c);assert.deepEqual(next.textOverridesById,{});assert.equal(next.tagMode,'binding');assert.deepEqual(next.nsfwTrigger,defaultTreeSettings().nsfwTrigger);assert.equal(next.orientation,'');assert.equal(next.params.count,'3');assert.deepEqual(next.migrationArchive,c);assert.equal(migrateTreeSettings(next),next);
  }
 });
 test('config failure stages retain live config and candidate commits only after persistence confirmation',async()=>{
@@ -29,9 +29,9 @@ test('binding cold start delays roster, stale loads cannot inject and generation
  bindings.prepare=async()=>{status='error';throw Error('fixture HTTP 403');};await assert.rejects(injection.begin(),/403/);assert.equal(calls.at(-1),'');assert.equal(errors.length,1);
  settings.promptConfig.mode='external';await injection.reload();assert.equal(calls.at(-1),'');
 });
-test('current tree cleanup retains exact composed D0 and blocks conflicting retired bodies',()=>{
+test('current tree retains exact composed D0 and legacy conflicting bodies stay only in recovery',()=>{
  const c=defaultTreeSettings();c.textOverridesById={'tags.full':{body:'CUSTOM TAG'}};c.legacyBackup={private:'obsolete'};c.treeBackup={};const expected=composePrompt(c),next=migrateTreeSettings(c);assert.equal(composePrompt(next),expected);assert.deepEqual(next.legacyBackup,c.legacyBackup);assert.deepEqual(next.treeBackup,c.treeBackup);
- const old={...c,treeRevision:1,textOverridesById:{tags:{body:'ONE'},'tags.rules':{body:'TWO'}}},before=structuredClone(old);assert.throws(()=>migrateTreeSettings(old),/冲突/);assert.deepEqual(old,before);
+ const old={...c,treeRevision:1,textOverridesById:{tags:{body:'ONE'},'tags.rules':{body:'TWO'}}},before=structuredClone(old);const rebuilt=migrateTreeSettings(old);assert.deepEqual(rebuilt.textOverridesById,{});assert.deepEqual(rebuilt.migrationArchive,before);assert.deepEqual(old,before);
 });
 test('disabled binding tags keep other D0 modules without loading archives',async()=>{
  const c=defaultTreeSettings();c.tagMode='binding';c.enabledById.tags=false;const calls=[];
@@ -39,7 +39,7 @@ test('disabled binding tags keep other D0 modules without loading archives',asyn
  await injection.begin();assert.ok(calls.at(-1).includes('<imageTag>'));assert.equal(calls.at(-1),composePrompt(c));
 });
 
-test('custom legacy cot boundary is blocked rather than discarded',()=>{const old=structuredClone(history[0].config);old.fixed.cot_xml='CUSTOM_BOUNDARY';const before=structuredClone(old);assert.throws(()=>migrateTreeSettings(old),/无法无损/);assert.deepEqual(old,before);});
+test('custom legacy cot boundary is archived without blocking the baseline rebuild',()=>{const old=structuredClone(history[0].config);old.fixed.cot_xml='CUSTOM_BOUNDARY';const before=structuredClone(old);assert.deepEqual(migrateTreeSettings(old).migrationArchive,before);assert.deepEqual(old,before);});
 
 test('pending migration cannot publish an unsafe runtime config through later chat events',async()=>{
  let ready=false;const calls=[];
@@ -50,4 +50,13 @@ test('candidate is detached and immutable during asynchronous persistence; late 
  const input=defaultTreeSettings();input.params.persona='ORIGINAL';let candidate,confirm,release,commits=0;
  const job=savePromptCandidate(input,{persist:async(value,controls)=>{candidate=value;confirm=controls.confirm;await new Promise(r=>release=r);},commit:()=>commits++});
  input.params.persona='CHANGED';assert.equal(candidate.params.persona,'ORIGINAL');assert.throws(()=>candidate.params.persona='MUTATED',TypeError);confirm();confirm();release();await job;assert.equal(commits,1);
+});
+
+test('confirmed legacy upgrade changes only promptConfig and does not rebuild at second startup',async()=>{
+ const settings={promptConfig:revision4Settings(),profiles:[{id:'fixture-profile'}],vibeLibrary:[{id:'fixture-vibe'}],bindings:{fixture:true},images:['fixture-image'],key:'placeholder',chat:['fixture-chat']};
+ settings.promptConfig.params.persona='CUSTOM';settings.promptConfig.params.target='CUSTOM';settings.promptConfig.mode='external';
+ const before=structuredClone(settings);let stored;
+ const start=()=>savePromptCandidate(settings.promptConfig,{persist:async candidate=>{stored=JSON.parse(JSON.stringify(candidate));},commit:()=>{settings.promptConfig=stored;}});
+ await start();assert.deepEqual({...settings,promptConfig:before.promptConfig},before);assert.equal(settings.promptConfig.mode,'external');assert.deepEqual(settings.promptConfig.migrationArchive,before.promptConfig);
+ settings.promptConfig.textOverridesById={composition:{body:'CURRENT CUSTOM'}};const current=structuredClone(settings.promptConfig);await start();assert.deepEqual(settings.promptConfig,current);
 });

@@ -1,8 +1,7 @@
-import {upgradeRevision4} from './tree-migration.js';
+import {rebuildLegacyTreeSettings} from './tree-migration.js';
 import {validateCaptureProtocol} from './prompt-runtime-renderer.js';
 import {promptTree, treeById, orientations} from './tree-defaults.js';
 import {defaultNsfwKeywords,validateNsfwKeywords} from './nsfw-trigger.js';
-import {promptTemplates} from './prompt-templates.js';
 
 export const paramNames = Object.freeze({count:'张数', eggMarker:'彩蛋位置'});
 export function defaultTreeSettings(mode = 'builtin') {
@@ -11,52 +10,19 @@ export function defaultTreeSettings(mode = 'builtin') {
         textOverridesById:{}, orientation:''};
 }
 
-function hasLegacyCustomizations(config) {
-    return config?.version === 1 && (config.fixed?.人格!==undefined&&config.fixed.人格!=='ELLA'||config.fixed?.对象!==undefined&&config.fixed.对象!=='User'||config.fixed?.cot_xml!==undefined&&config.fixed.cot_xml!=='star_cot'||Object.entries(config.overrides || {}).some(([key, text]) => text !== promptTemplates[key]?.content));
-}
-
-// One-time upgrades only; unsplittable historical documents remain untouched and blocked.
+// Revision 5 is the compatibility baseline. Future revisions need their own
+// preserving upgrades; never classify an unknown revision as legacy.
 export function migrateTreeSettings(config) {
     if (!config) return defaultTreeSettings();
     if (config.version === 2) {
         if (config.treeRevision === 5) {validateTreeSettings(config);if(Object.hasOwn(config.injection,'order'))return {...config,injection:{depth:config.injection.depth}};return config;}
-        if (config.treeRevision === 4) return migrateTreeSettings(upgradeRevision4(config));
-        if (config.treeRevision === 3) {
-            const next={...config,treeRevision:4,tagMode:config.tagMode??'full',textOverridesById:structuredClone(config.textOverridesById||{})};
-            if(next.textOverridesById.tags?.body!==undefined){
-                if(next.textOverridesById['tags.full']?.body!==undefined&&next.textOverridesById['tags.full'].body!==next.textOverridesById.tags.body)throw Error('旧 Tag 与新版完整 Tag 自定义正文冲突，原配置保留；请核对宿主设置备份');
-                next.textOverridesById['tags.full']={...next.textOverridesById['tags.full'],body:next.textOverridesById.tags.body};
-                delete next.textOverridesById.tags;
-            }
-            return migrateTreeSettings(next);
+        if (config.treeRevision === undefined || [1,2,3,4].includes(config.treeRevision)) {
+            return rebuildLegacyTreeSettings(config, defaultTreeSettings(), validateTreeSettings);
         }
-        if (config.treeRevision === 2) {
-            const next = {...config, treeRevision:3, nsfwTrigger:config.nsfwTrigger === undefined ? {keywords:[...defaultNsfwKeywords]} : structuredClone(config.nsfwTrigger)};
-            return migrateTreeSettings(next);
-        }
-        if (config.treeRevision !== undefined && config.treeRevision !== 1) throw Error('不支持的提示词树版本，原配置已保留');
-        const next = {...config, treeRevision:2, enabledById:{...config.enabledById}, textOverridesById:structuredClone(config.textOverridesById || {})};
-        if(config.textOverridesById?.tags?.body!==undefined&&config.textOverridesById?.['tags.rules']?.body!==undefined&&config.textOverridesById.tags.body!==config.textOverridesById['tags.rules'].body)throw Error('旧 Tag 两份自定义正文冲突，原配置保留；请从宿主设置备份核对正文后升级');
-        const suffix=next.textOverridesById.egg?.suffix;
-        if(suffix!==undefined&&suffix!=='完成彩蛋任务。')next.textOverridesById.egg={...next.textOverridesById.egg,body:(next.textOverridesById.egg.body??treeById.egg.slots.body)+'\n'+suffix};
-        if (typeof next.enabledById['tags.rules'] === 'boolean') next.enabledById.tags = savedEnabled(config, 'tags') && next.enabledById['tags.rules'];
-        delete next.enabledById['tags.rules']; delete next.enabledById['selfcheck.nsfw'];
-        if (next.textOverridesById['tags.rules']?.body !== undefined) next.textOverridesById.tags = {...next.textOverridesById.tags, body:next.textOverridesById['tags.rules'].body};
-        delete next.textOverridesById['tags.rules'];
-        if (next.textOverridesById.egg) { delete next.textOverridesById.egg.suffix; if (!Object.keys(next.textOverridesById.egg).length) delete next.textOverridesById.egg; }
-        return migrateTreeSettings(next);
+        throw Error('不支持的提示词树版本，原配置已保留');
     }
-    if (config.version !== 1) throw Error('不支持的提示词配置版本，原配置已保留');
-    if (hasLegacyCustomizations(config)) throw Error('旧版自定义全文无法无损拆分，原配置未覆盖；请从宿主设置备份提取正文后转换到新版条目');
-    const next = defaultTreeSettings(config.mode);
-    for (const [key, name] of Object.entries(paramNames)) if (typeof config.fixed?.[name] === 'string') next.params[key] = config.fixed[name];
-    if(typeof config.fixed?.彩蛋标签==='string')next.params.eggMarker=config.fixed.彩蛋标签;
-    const modules = {selfCheck:'selfcheck', easterEgg:'egg', subtitle:'output.subtitle', easterEggDescription:'egg.description', nsfw:'nsfw'};
-    for (const [key, id] of Object.entries(modules)) if (typeof config.modules?.[key] === 'boolean') next.enabledById[id] = config.modules[key];
-    next.orientation = String(config.orientation || '').toUpperCase();
-    if (config.migration) next.migration = structuredClone(config.migration);
-    validateTreeSettings(next);
-    return next;
+    if (config.version === 1) return rebuildLegacyTreeSettings(config, defaultTreeSettings(), validateTreeSettings);
+    throw Error('不支持的提示词配置版本，原配置已保留');
 }
 
 export function validateTreeSettings(config) {
