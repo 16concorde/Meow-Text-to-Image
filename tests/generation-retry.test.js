@@ -1,9 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {retryGeneration,isRetryableGeneration} from '../src/generation/generation-retry.js';
-import {generationOptions,migrateGenerationOptions,migrateGenerationMode,runGenerationTask} from '../src/generation/generation-options.js';
+import {generationOptions,migrateGenerationOptions,migrateGenerationMode,runGenerationTask,regenerateHistoricalSeed} from '../src/generation/generation-options.js';
 import {httpRequestError,parseRetryAfter} from '../src/platform/request-errors.js';
 const refused=(status=429,retryAfterMs=0)=>httpRequestError({source:'nai-generation',status,retryAfterMs});
+test('historical binding reroll updates only seed: random differs, fixed obeys configuration, original stays untouched',()=>{
+ const original={seed:123,prompt:'scene',negative_prompt:'bad',naiCharacters:['boy, silver hair'],naiCharacterNegatives:['blonde hair'],vibes:[{id:'v1'}]};
+ const fixed=regenerateHistoricalSeed(original,555,()=>assert.fail('fixed seed must not draw random'));
+ assert.deepEqual(fixed,{...original,seed:555});
+ const next=regenerateHistoricalSeed(original,-1,()=>123/4294967296);
+ assert.equal(next.seed,124);assert.deepEqual({...next,seed:original.seed},original);
+ const again=regenerateHistoricalSeed(next,-1,()=>123/4294967296);
+ assert.equal(again.seed,123);
+ assert.deepEqual(original,{seed:123,prompt:'scene',negative_prompt:'bad',naiCharacters:['boy, silver hair'],naiCharacterNegatives:['blonde hair'],vibes:[{id:'v1'}]});
+ assert.throws(()=>regenerateHistoricalSeed(original,-2),/种子/);
+});
 test('R01–R03: local mode never uses cloud, opt-in fixed 10s and at most four POSTs',async()=>{
  for(const enabled of [false,true])for(const success of [false,true]){
   let now=0;const posts=[],statuses=[],scope={cloudQueue:false,autoRetryEnabled:enabled};

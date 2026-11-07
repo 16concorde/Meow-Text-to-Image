@@ -24,6 +24,17 @@ export function migrateGenerationOptions(settings,{newInstallation=false}={}){
 export function generationOptions(settings){
     return {...connectionSnapshot(settings),cloudQueue:settings.cloudQueue===true,autoRetryEnabled:settings.autoRetryEnabled===true,queueUrl:settings.queueUrl,generationTimeoutSeconds:generationTimeoutSeconds(settings.generationTimeoutSeconds)};
 }
+// A reroll keeps the historical request payload, except for the configured seed policy.
+// Never mutate the stored image version: retries reuse this newly prepared request.
+export function regenerateHistoricalSeed(request, configuredSeed, random=Math.random){
+    const selected=Number(configuredSeed);
+    if(!Number.isInteger(selected)||selected<-1||selected>4294967295)throw Error('种子须为 -1 或 0～4294967295');
+    if(selected!==-1)return {...request,seed:selected};
+    let seed=Math.floor(random()*4294967296);
+    if(seed===request.seed)seed=(seed+1)>>>0;
+    return {...request,seed};
+}
+
 // The snapshot is created when enqueueing, never read again during retries.
 export function runGenerationTask({scope,generate,queueOptions={},retryOptions={},canContinue=()=>true,onStatus=()=>{}}){
     const snapshot={...scope};

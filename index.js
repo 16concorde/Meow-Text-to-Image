@@ -18,7 +18,7 @@ import {fingerprintKey,runWithQueue,validateQueueURL} from './src/queue/cloud-qu
 import {randomId} from './src/platform/browser-crypto.js';
 import {createThumbnails,imageBlob,blobBase64,localImagePath,makeThumbnail} from './src/images/image-thumbnails.js';
 import {createFavorites,validateFavorite,favoritesEnabled,FAVORITE_FOLDER,FAVORITE_IMAGE_LIMIT} from './src/prompts/prompt-favorites.js';
-import {generationOptions,migrateGenerationOptions,migrateGenerationMode,runGenerationTask} from './src/generation/generation-options.js';
+import {generationOptions,migrateGenerationOptions,migrateGenerationMode,runGenerationTask,regenerateHistoricalSeed} from './src/generation/generation-options.js';
 import {waitForGeneration} from './src/generation/generation-delay.js';
 import {showPagePopup} from './src/ui/page-popup.js';
 import {showPanelPage} from './src/ui/panel-page.js';
@@ -333,7 +333,8 @@ async function startGeneration(message,block,{automatic=false,egg=false}={}) {
     if(bound)await characterBindings.settled(message,block);
     const previous=state(message,key);
     const historical=bound&&previous?.request&&previous.tagPrompt===block.prompt&&!previous.bindingReassociated;
-    const request=historical?structuredClone(previous.request):buildRequest(profile,block.prompt,bound?await characterBindings.resolve(message,block):undefined);
+    const seedProfile=historical?(settings.profiles.find(p=>p.id===previous.profileId)??profile):profile;
+    const request=historical?regenerateHistoricalSeed(structuredClone(previous.request),seedProfile.seed):buildRequest(profile,block.prompt,bound?await characterBindings.resolve(message,block):undefined);
     if(chat!==currentChat()||!blocks(message).some(b=>b.raw===block.raw&&b.start===block.start))throw Error('聊天或 Tag 已切换，请重新生成');
     if(running.has(taskId))return running.get(taskId).promise;
     if(!historical)request.vibes=selectVibes(profile,settings.vibeLibrary);

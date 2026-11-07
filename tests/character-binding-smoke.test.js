@@ -58,11 +58,22 @@ test('actual binding UI, D0, chat switches and complete ungenerated history on d
    await button('生成插图').click();await page.waitForFunction(()=>window.preview.calls.length===1);await page.locator('.miao-image-card img').waitFor();
    const payload=await page.evaluate(()=>window.preview.calls[0]);assert.deepEqual(payload.parameters.characterPrompts.map(c=>c.uc),['blonde hair','black hair','']);assert.equal(payload.parameters.characterPrompts[1].prompt,'boy, silver hair, blue eyes, white shirt');assert.ok(!payload.input.includes('silver hair'));assert.deepEqual(await page.evaluate(()=>window.preview.chat.at(-1).miaoCharacterSnapshots),snapshot);
    await page.evaluate(()=>Object.assign(window.preview.settings.profiles[window.preview.settings.active],{width:640,scale:8,seed:555,positive:'CHANGED GLOBAL'}));
-   await page.locator('.miao-image-card img').dblclick();await page.waitForFunction(()=>window.preview.calls.length===2);assert.deepEqual(await page.evaluate(()=>window.preview.calls[1]),payload);
+   await page.locator('.miao-image-card img').dblclick();await page.waitForFunction(()=>window.preview.calls.length===2);
+   const fixedPayload=await page.evaluate(()=>window.preview.calls[1]);
+   assert.equal(fixedPayload.parameters.seed,555);
+   assert.deepEqual({...fixedPayload,parameters:{...fixedPayload.parameters,seed:payload.parameters.seed}},payload);
    await page.waitForFunction(()=>document.querySelector('.miao-version-count')?.textContent==='2 / 2');
+   // Keep consecutive user rerolls outside the existing 900ms gesture guard.
+   await page.waitForTimeout(950);
+   await page.evaluate(()=>{window.preview.settings.profiles[window.preview.settings.active].seed=-1;});
+   await page.locator('.miao-image-card img').dblclick();await page.waitForFunction(()=>window.preview.calls.length===3);
+   const randomPayload=await page.evaluate(()=>window.preview.calls[2]);
+   assert.notEqual(randomPayload.parameters.seed,555);
+   assert.deepEqual({...randomPayload,parameters:{...randomPayload.parameters,seed:payload.parameters.seed}},payload);
+   await page.waitForFunction(()=>document.querySelector('.miao-version-count')?.textContent==='3 / 3');
    // Both automatic paths must persist the binding snapshot before a single POST.
    for(const mode of ['auto','stream']){
-    const expected=mode==='auto'?3:4;
+    const expected=mode==='auto'?4:5;
     await page.evaluate(async mode=>{
      const p=window.preview;p.settings.mode=mode;p.chat.splice(0);p.chatId='binding-'+mode;await p.emit('CHAT_CHANGED');await p.emit('GENERATION_STARTED','normal');await p.emit('GENERATION_AFTER_COMMANDS','normal');
      p.chat.push({name:'Automatic Fixture',mes:'image###1boy, cafe | U01, smiling'+(mode==='auto'?'###':''),swipe_id:0});
@@ -70,7 +81,7 @@ test('actual binding UI, D0, chat switches and complete ungenerated history on d
      await p.emit(mode==='auto'?'GENERATION_ENDED':'STREAM_TOKEN_RECEIVED');
     },mode);
     if(mode==='stream'){
-     assert.equal(await page.evaluate(()=>window.preview.calls.length),3);
+     assert.equal(await page.evaluate(()=>window.preview.calls.length),4);
      await page.evaluate(async()=>{const p=window.preview;p.chat.at(-1).mes+='###';document.querySelector('.mes_text').textContent=p.chat.at(-1).mes;await p.emit('STREAM_TOKEN_RECEIVED');});
     }
     await page.waitForFunction(expected=>window.preview.calls.length===expected,expected);
