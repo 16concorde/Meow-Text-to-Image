@@ -16,3 +16,7 @@ node_modules/
 
 .DS_Store
 /scripts/queue-phase*-report.mjs
+
+# Tests, previews, fixtures and artifacts remain local only.
+/docs/local/
+/tests/

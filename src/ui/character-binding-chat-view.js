@@ -1,7 +1,7 @@
 import {bindingSwitchKey} from '../profiles/character-bindings.js';
 import {BINDING_PAGE_SIZE as SIZE,bindingNode as n,bindingAction as action,bindingIcon as icon,bindingSwitch,bindingViewport} from './character-binding-controls.js';
 export function createBindingChatView({chatSettings,management,route,draft,onOwner,onSelectChat,onError,onState=()=>{}}){
-    const root=n('section',undefined,'miao-binding-chat'),status=n('p','正在加载…','miao-muted'),feedback=n('div');status.setAttribute('aria-live','polite');root.append(status);let currentWarning;let disposed=false,state,pending=null,timer,statusTimer,epoch=0;
+    const root=n('section',undefined,'miao-binding-chat'),status=n('p','正在加载…','miao-muted'),feedback=n('div');status.setAttribute('aria-live','polite');root.append(status);let currentWarning;let disposed=false,state,pending=null,timer,epoch=0;
     const scope=management.host.scope(),active=()=>!disposed&&management.host.scope()===scope;
     const dirty=()=>{draft.dirty=Object.keys(draft.values||{}).length>0||!!draft.globalOperation;onState();};
     function fail(error){if(!active())return;status.textContent=['unknown','unconfirmed'].includes(error.saveState)?'保存结果待确认，请先查证。':error.message;feedback.replaceChildren();action(feedback,'重试／查证保存',save,fail);
@@ -21,7 +21,10 @@ export function createBindingChatView({chatSettings,management,route,draft,onOwn
     }catch(error){if(active()&&token===epoch){status.textContent='加载失败：'+error.message;onError(error);action(feedback,'重试读取聊天',load,fail);if(!feedback.isConnected)root.append(feedback);}}}
     function lock(value){root.setAttribute('aria-busy',String(value));for(const el of root.querySelectorAll('button,input[type=checkbox]')){el.dataset.saveBlocked=String((!!draft.failed||!!draft.globalOperation)&&!feedback.contains(el));el.disabled=value||el.dataset.readonly==='true'||el.dataset.saveBlocked==='true';}onState();}
     async function flushPending(){if(pending)await pending;}
-    function run(job){if(pending)return pending;lock(true);status.textContent='正在保存…';pending=(async()=>{try{await job();if(active()){paint();status.textContent='此聊天开关已保存并读回确认';clearTimeout(statusTimer);statusTimer=setTimeout(()=>{if(active()&&status.textContent==='此聊天开关已保存并读回确认')status.textContent=route.chatRef.fileName;},1500);}}finally{pending=null;if(active())lock(false);}})();onState();return pending;}
+    function run(job){if(pending)return pending;lock(true);pending=(async()=>{try{await job();if(active()){
+            feedback.replaceChildren();status.textContent=route.chatRef.fileName;
+            for(const row of chatSettings.rows(state)){const input=[...root.querySelectorAll('input[type=checkbox]')].find(el=>el.getAttribute('aria-label')==='聊天启用'+row.shortId);if(input){input.checked=row.enabled;input.setAttribute('aria-checked',String(row.enabled));}}
+        }}finally{pending=null;if(active())lock(false);}})();onState();return pending;}
     async function save(){if(pending)await pending;if(!state)throw Error('聊天尚未加载');
         if(Object.keys(draft.values||{}).length)await run(async()=>{
             // Always fresh-read before a retry, and compare to the original namespace baseline.
@@ -60,5 +63,5 @@ export function createBindingChatView({chatSettings,management,route,draft,onOwn
         if(draft.failed||draft.globalOperation){status.textContent='有未确认的保存，请重试或查证';action(feedback,'重试／查证保存',save,fail);}if(focused)[...root.querySelectorAll('button,input')].find(el=>focused.label?el.getAttribute('aria-label')===focused.label:el.textContent===focused.text)?.focus({preventScroll:true});onState();
     }
     function refreshContext(){if(currentWarning)currentWarning.hidden=!!chatSettings.isCurrent(route.chatRef);}
-    void load();return {element:root,refreshContext,save:async()=>{try{await save();}catch(error){fail(error);throw error;}},flushPending,canSave:()=>!!state&&!!draft.dirty,hasPending:()=>!!pending,hasFailure:()=>!!draft.failed||!!draft.globalOperation,dispose(){disposed=true;epoch++;clearTimeout(timer);clearTimeout(statusTimer);}};
+    void load();return {element:root,refreshContext,save:async()=>{try{await save();}catch(error){fail(error);throw error;}},flushPending,canSave:()=>!!state&&!!draft.dirty,hasPending:()=>!!pending,hasFailure:()=>!!draft.failed||!!draft.globalOperation,dispose(){disposed=true;epoch++;clearTimeout(timer);}};
 }

@@ -159,6 +159,19 @@ const persistSettings=({select=value=>value,key='settings'}={})=>{
     const expected=structuredClone(select({...settings,...pendingPanel,...(pendingPrompt?{promptConfig:pendingPrompt}:{})}));
     return saveCoordinator.submit({key,prepare:syncSettingsView,verifyPersisted:verifyFields(select,expected)});
 };
+// Preview results belong to the generator, including while a panel transaction is
+// pending. Never verify or persist the panel's older preview snapshot instead.
+const persistProfilePreview=({profileId})=>{
+    const select=s=>s.profiles.find(p=>p.id===profileId)?.preview;
+    const expected=structuredClone(select(settings));
+    if(!expected)return Promise.reject(Error('例图所属配置已移除'));
+    return saveCoordinator.submit({key:'profile-preview:'+profileId,prepare:()=>{
+        if(!settings.profiles.some(p=>p.id===profileId))throw new SaveCancelledError();
+        const pending=pendingPanel?.profiles?.find(p=>p.id===profileId);
+        if(pending)pending.preview=structuredClone(expected);
+        syncSettingsView();
+    },verifyPersisted:verifyFields(select,expected)});
+};
 if(generationOptionsMigrated||connectionMigrated||generationModeMigrated)save();
 const favorites=createFavorites({settings,persist:()=>persistSettings({key:'favorites',select:s=>s.promptFavorites})});
 const thumbnails=createThumbnails({fetchImage:url=>hostFetch(url),saveImage:saveBase64AsFile});
@@ -173,7 +186,7 @@ async function saveGeneratedImage(data,folder,name){
 ensureProfileIds(settings.profiles);
 for(const warning of reconcileProfileSelection(settings))notices.warning(warning,'配置选择');
 const eggMarkerCache=createEggMarkerCache({read:readResourceMacros,key:()=>settings.promptConfig?.version===2?settings.promptConfig.params.eggMarker:settings.promptConfig?.fixed?.彩蛋标签});
-const profilePreviews=createProfilePreviews({profiles:()=>settings.profiles,library:()=>settings.vibeLibrary,prompt:()=>settings.samplePrompt,onQueued:()=>notices.info('例图已加入生图队列','喵喵文生图'),enqueue,generate:requestImage,saveImage:(data,scope)=>saveGeneratedImage(data,scope.folder,`sample-${Date.now()}-${randomId()}`),persist:({profileId})=>persistSettings({key:'profile-preview:'+profileId,select:s=>s.profiles.find(p=>p.id===profileId)?.preview}),onChange:()=>settingsHost?.dispatchEvent(new Event('miao-profile-previews')),onError:error=>generationError(error)});
+const profilePreviews=createProfilePreviews({profiles:()=>settings.profiles,library:()=>settings.vibeLibrary,prompt:()=>settings.samplePrompt,onQueued:()=>notices.info('例图已加入生图队列','喵喵文生图'),enqueue,generate:requestImage,saveImage:(data,scope)=>saveGeneratedImage(data,scope.folder,`sample-${Date.now()}-${randomId()}`),persist:persistProfilePreview,isCurrent:ownsSettings,onChange:detail=>{if(ownsSettings())settingsHost?.dispatchEvent(new CustomEvent('miao-profile-previews',{detail}));},onError:error=>generationError(error)});
 const directUser=getCurrentUserHandle(),directVault=createKeyVault(directUser);
 const customVault=createKeyVault(JSON.stringify([directUser,'custom-novelai']));
 const activeVault=()=>settings.naiConnection==='custom'?customVault:directVault;
@@ -637,7 +650,8 @@ function savePanelSettingsPatch(patch,base){
         const data=await response.json(),remote=JSON.parse(data.settings)?.extension_settings?.[ID]||{};
         const before=pick(base),remoteFields=Object.fromEntries(keys.map(key=>[key,structuredClone(remote[key]===undefined?base[key]:remote[key])])),desired=pick(applyConfigPatch(base,patch));let candidate;
         try{candidate=mergePromptChanges(before,remoteFields,desired,panelSettingsPatch);}catch(error){error.message='设置存在并发冲突，当前草稿保留，请重新加载最新设置后处理';error.latest=remoteFields;throw error;}
-        try{await saveCoordinator.submit({key:'panel-auto',prepare:()=>{syncSettingsView();pendingPanel=candidate;extension_settings[ID]=pendingView;},verifyPersisted:verifyFields(pick,candidate),onConfirmed:()=>{for(const key of keys)settings[key]=structuredClone(candidate[key]);pendingPanel=null;syncSettingsView();refreshPrompt();}});}
+        const mergePreviews=()=>{for(const p of candidate.profiles||[]){const live=settings.profiles.find(item=>item.id===p.id);if(live?.preview)p.preview=structuredClone(live.preview);}};
+        try{await saveCoordinator.submit({key:'panel-auto',prepare:()=>{mergePreviews();syncSettingsView();pendingPanel=candidate;extension_settings[ID]=pendingView;},verifyPersisted:verifyFields(pick,candidate),onConfirmed:()=>{mergePreviews();for(const key of keys)settings[key]=structuredClone(candidate[key]);pendingPanel=null;syncSettingsView();refreshPrompt();}});}
         catch(error){if(error.status!=='unconfirmed'){pendingPanel=null;syncSettingsView();}throw error;}
     };
     const job=panelSaveTail.catch(()=>{}).then(()=>navigator.locks?navigator.locks.request('meow-text-to-image-settings',run):Promise.reject(Error('当前环境缺少安全写入锁，草稿保留')));panelSaveTail=job;return job;
@@ -922,7 +936,7 @@ async function showPrompt(prompt,vibes=[],profileName='',pending=false,vibeEnabl
         cancel.onclick=()=>{editor.hidden=true;original.hidden=edit.hidden=actions.hidden=false;error.textContent='';};
         commit.onclick=async()=>{if(commit.disabled)return;commit.disabled=cancel.disabled=true;error.textContent='';try{await onEdit(input.value);if(popup?.completeAffirmative)popup.completeAffirmative();else popup?.dlg.close();}catch(cause){error.textContent=String(cause.message||cause);}finally{commit.disabled=cancel.disabled=false;}};
     }
-    view.append(actions,note,fallback,translated);await showPopup(view,POPUP_TYPE.TEXT,'',{wide:true,onOpen:value=>{popup=value;popup.dlg.classList.add('miao-content-dialog');}});
+    view.append(actions,note,fallback,translated);await showPopup(view,POPUP_TYPE.TEXT,'',{wide:true,onOpen:value=>{popup=value;popup.dlg.classList.add('miao-content-dialog','miao-prompt-dialog');}});
 }
 async function importVibeFiles(files,options){
     const items=await readVibeFiles(files,options);
@@ -947,7 +961,7 @@ function draftFromImage(url,scenePrompt=sceneFromImage(url),profileName){
     return {name:profileName?`${profileName} · 场景收藏`:'场景收藏',positive:scenePrompt,images:[url]};
 }
 const favoriteUploads=new WeakMap();
-async function saveFavorite(draft,files=[]){
+async function saveFavorite(draft,files=[],{silent=false}={}){
     if(!favoritesEnabled(settings))throw Error('请先在「生成」页开启收藏提示词');
     validateFavorite(draft,location.href);
     if(draft.images.length+files.length>FAVORITE_IMAGE_LIMIT)throw Error(`每条收藏最多 ${FAVORITE_IMAGE_LIMIT} 张例图`);
@@ -965,7 +979,7 @@ async function saveFavorite(draft,files=[]){
         }
         images.push(url);
     }
-    const result=await favorites.save({...draft,images});notices.success('收藏已保存','喵喵文生图');return result;
+    const result=await favorites.save({...draft,images});if(!silent)notices.success('收藏已保存','喵喵文生图');return result;
 }
 async function generateFavorite(item,profileId){
     if(!favoritesEnabled(settings))throw Error('请先在「生成」页开启收藏提示词');

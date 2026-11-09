@@ -31,17 +31,17 @@
 | `assets/` | 运行时需要的世界书、正则、资源清单等静态资源；不放用户文件与测试输出。 |
 | `cloudflare/` | Cloudflare Worker 与 Durable Object 适配。 |
 | `queue-service/` | 队列服务端状态机、策略与 Node 服务；不依赖前端 `src/`。 |
-| `tests/`、`tests/support/` | 可维护的自动化测试、模拟环境与测试公共辅助模块。 |
-| `scripts/` | 需要保留并可重复执行的维护/验证命令；临时脚本放 `docs/local/`。 |
+| `docs/local/tests/`、`docs/local/tests/support/` | 仅本地的自动化测试、模拟环境与测试辅助模块；不提交、不推送。 |
+| `scripts/` | 正式部署与运维脚本；开发预览、模拟和本地 runner 放 `docs/local/tools/`，不提交。 |
 | `docs/`、`docs/local/` | 分别为明确允许公开的用户说明与禁止提交的本地工作材料。 |
 
-新增文件先根据主要职责选择已有目录；一项新功能通常包含所属功能目录中的逻辑、`src/ui/` 中的界面，以及 `tests/` 中的测试，不为每项功能在根目录另建入口。不提前创建空目录；职责确实独立时再增加命名明确的子目录，并补充本表。不要创建无边界的 `utils/` 或将文件复制到多个目录。
+新增文件先根据主要职责选择已有目录；一项新功能通常包含所属功能目录中的逻辑、`src/ui/` 中的界面，以及 `docs/local/tests/` 中的本地测试，不为每项功能在根目录另建入口。不提前创建空目录；职责确实独立时再增加命名明确的子目录，并补充本表。不要创建无边界的 `utils/` 或将文件复制到多个目录。
 
 扩展由根目录 `index.js` 接入酒馆，资源根地址与更新定位仍以该入口为准。子模块读取根目录清单时使用正确的相对 URL；宿主 `/scripts/`、`/lib/` 及 `/api/` 路径不等于扩展内部路径，不可按本地文件随意改写。前端不导入 Node 专用代码。
 
 移动模块必须同步检查静态与动态 import、浏览器预览服务器的模块 URL/允许列表、测试加载路径、Worker 依赖清单、Docker COPY 和资源 URL。不要留下旧路径转发文件掩盖漏改；不要修改测试里刻意加载的旧版本源码路径。
 
-测试/维护脚本写出的报告、JSON、截图等结果放在 `docs/local/`，运行前创建目录；历史输入路径或用户明确提供的输出位置保持其原意。
+测试/维护报告与 JSON 放 `docs/local/artifacts/reports/`，截图放 `docs/local/artifacts/screenshots/`，日志放 `docs/local/artifacts/logs/`，运行前创建目录；历史输入路径或用户明确提供的输出位置保持其原意。
 
 ## 文档位置与读者
 
@@ -53,7 +53,7 @@
 
 ## 可以提交与禁止提交的内容
 
-可以提交与当前任务相关的产品源码、必要资源、仓库维护配置、自动化测试源码，以及确有必要更新的公开文档。测试源码应可重复运行，使用模拟数据，不包含真实用户内容。
+可以提交与当前任务相关的产品源码、必要资源、仓库维护配置，以及确有必要更新的公开文档。本地测试源码应可重复运行，使用模拟数据，不包含真实用户内容；测试、fixtures、预览工具和产物均不上传。
 
 不得提交以下内容，即使文件没有被 Git 忽略：
 
@@ -73,17 +73,21 @@
    - **执行动作：** 检查 JSON 格式有效性、文档相对链接与 `git diff --check`，**不运行任何代码或浏览器测试**。
 2. **L1 轻量级（单一业务模块修改）**
    - **触发范围：** 修改 `src/` 下的非 UI 业务目录（如 `src/prompts/`、`src/novelai/`、`src/core/`、`src/images/`、`src/generation/` 等）或 `queue-service/`、`cloudflare/`。
-   - **执行动作：** 仅使用 `node --test` 运行 `tests/` 下与该模块直接相关的单个或几个测试文件，**不启动 Playwright 浏览器测试，不跑全量测试**。
+   - **执行动作：** 仅使用 `node --test` 运行 `docs/local/tests/` 下与该模块直接相关的单个或几个测试文件，**不启动 Playwright 浏览器测试，不跑全量测试**。
 3. **L2 UI 冒烟级（界面交互与入口修改）**
    - **触发范围：** 修改 `src/ui/`、入口 `index.js` 或面板配置保存逻辑。
-   - **执行动作：** 运行语法与模块检查，并执行 `node --test tests/settings-panel-smoke.test.js`（复用现有 Playwright，可通过 `MIAO_PLAYWRIGHT_MODULE` 与 `MIAO_BROWSER_CHANNEL` 指定环境）。若涉及配置草稿保存/取消、模块开关或恢复默认，补充运行对应的配置单测。
+   - **执行动作：** 运行语法与模块检查，并执行 `node docs/local/tools/run-tests.mjs settings-panel-smoke.test.js`（复用现有 Playwright，可通过 `MIAO_PLAYWRIGHT_MODULE` 与 `MIAO_BROWSER_CHANNEL` 指定环境）。若涉及配置草稿保存/取消、模块开关或恢复默认，补充运行对应的配置单测。
 4. **L3 全量级（跨模块重构 / 目录迁移 / 合并 `main` 前）**
    - **触发范围：** 修改 `shared/` 公共协议、移动源码目录结构，或准备将 `test` 分支合并到 `main` 分支前。
-   - **执行动作：** 运行模块布局检查与完整 `npm test`。
+   - **执行动作：** 运行模块布局检查与完整本地验证 `node docs/local/tools/run-tests.mjs --all`。
 
 **测试通用原则：**
 - 不为通过测试削弱断言，不把模拟宿主验证描述为真实 SillyTavern / TauriTavern 设备验收通过。
-- 完成后检查 `git diff --check`、`git status` 和任务范围内的差异。测试通过仅报告摘要；失败报告关键错误和实际阻碍，不无限重试。测试产物仅写入 `docs/local/`。
+- 完成后检查 `git diff --check`、`git status` 和任务范围内的差异。测试通过仅报告摘要；失败报告关键错误和实际阻碍，不无限重试。测试产物仅写入 `docs/local/artifacts/` 对应子目录。
+
+本地测试可用时以 `node docs/local/tools/run-tests.mjs <测试文件名...>` 执行，runner 从任意目录定位仓库根。测试或依赖缺失时如实报告未运行，不安装大型依赖、不假装通过。仅移动本地测试不等于移动产品源码；迁移后执行路径和模块布局检查与直接相关回归，不因此强制运行无关浏览器套件。
+
+正式插件入口、源码和运行资源不得依赖 `tests/`、`docs/local/`、测试快照或 runner。合法正文/标签修改不要求同步测试正文 SHA；真实结构、身份、格式和保存冲突校验必须保留。
 
 ## 分支、版本与提交流程
 

@@ -38,28 +38,53 @@ export function sampleRequest(profile,library=[],prompt=SAMPLE_PROMPT){
     const request=buildRequest({...profile,width:512,height:512,seed:246813579},prompt,[],{fixedSize:true});
     request.vibes=selectVibes(profile,library,()=>0);return request;
 }
-export function sampleSignature(profile,library=[],prompt=SAMPLE_PROMPT){const request=sampleRequest(profile,library,prompt);request.vibes=request.vibes.map(({id,key,strength})=>({id,key,strength}));return JSON.stringify(request);}
-export function createProfilePreviews({profiles,library,prompt=()=>SAMPLE_PROMPT,onQueued=()=>{},enqueue,generate,saveImage,persist,onChange=()=>{},onError=()=>{}}){
+// Only effective image-generation semantics participate in freshness. Layout and
+// display metadata are intentionally absent; seeds are fixed for comparison.
+function requestSignature(request){
+    const keys=['prompt','negative_prompt','model','sampler','scheduler','steps','scale','cfg_rescale','variety_boost','naiCharacters','naiCharacterNegatives'];
+    const effective=Object.fromEntries(keys.filter(key=>request[key]!==undefined).map(key=>[key,request[key]]));
+    effective.width=effective.height=512;effective.seed=246813579;
+    effective.vibes=(request.vibes||[]).map(({id,key,strength})=>({id,key,strength:Number(strength??0.6)}));
+    return JSON.stringify({version:2,request:effective});
+}
+export function sampleSignature(profile,library=[],prompt=SAMPLE_PROMPT){return requestSignature(sampleRequest(profile,library,prompt));}
+function freshness(profile,signature){
+    const preview=profile.preview;if(!preview?.url)return false;
+    if(preview.signature===signature)return true;
+    // Old signatures contain their effective request; old snapshots may use a
+    // randomized generation seed. Neither should invalidate a previously saved image.
+    let old=preview.request;
+    if(!old)try{const parsed=JSON.parse(preview.signature);if(parsed.prompt&&parsed.model)old=parsed;}catch{}
+    if(!old)return null;
+    return requestSignature(old)===signature;
+}
+export function createProfilePreviews({profiles,library,prompt=()=>SAMPLE_PROMPT,onQueued=()=>{},enqueue,generate,saveImage,persist,onChange=()=>{},onError=()=>{},isCurrent=()=>true}){
     const jobs=new Map();
-    const current=(id,signature)=>{const p=profiles().find(item=>item.id===id);try{return p&&sampleSignature(p,library(),prompt())===signature?p:null;}catch{return null;}};
+    const current=(id,signature)=>{const p=isCurrent()&&profiles().find(item=>item.id===id);try{return p&&sampleSignature(p,library(),prompt())===signature?p:null;}catch{return null;}};
     return {
-        state(profile){const job=jobs.get(profile.id);let fresh=false;try{fresh=profile.preview?.signature===sampleSignature(profile,library(),prompt());}catch{}
-            return {url:profile.preview?.url,busy:!!job?.busy,status:job?.busy?job.status:job?.error?'生成失败':profile.preview?.url?(fresh?'':'待更新'):''};},
+        state(profile){const job=jobs.get(profile.id);let fresh=null;try{fresh=freshness(profile,sampleSignature(profile,library(),prompt()));}catch{fresh=false;}
+            return {url:profile.preview?.url,busy:!!job?.busy,needsSave:!!job?.unsaved,status:job?.busy?job.status:job?.unsaved?'保存未确认':job?.error?'生成失败':profile.preview?.url?(fresh===false?'待更新':''):''};},
         refresh(profile,{ifChanged=false,scope}={}){
             let signature,request;try{signature=sampleSignature(profile,library(),prompt());request=sampleRequest(profile,library(),prompt());}catch(error){onError(error);return Promise.resolve();}
-            if(ifChanged&&profile.preview?.url&&profile.preview.signature===signature){if(jobs.get(profile.id)?.error){jobs.delete(profile.id);onChange();}return Promise.resolve();}
+            const existing=jobs.get(profile.id);
+            if(ifChanged&&existing?.unsaved&&profile.preview?.url){
+                if(existing.busy)return existing.promise;
+                existing.busy=true;existing.status='查证例图保存';onChange({profileId:profile.id});
+                existing.promise=Promise.resolve().then(()=>{if(!isCurrent()||jobs.get(profile.id)!==existing||!profiles().some(p=>p.id===profile.id))return;return persist({profileId:profile.id});}).then(()=>{existing.unsaved=false;existing.error=null;}).catch(error=>{existing.error=error.message;onError(error);}).finally(()=>{existing.busy=false;onChange({profileId:profile.id});});return existing.promise;
+            }
+            if(ifChanged&&profile.preview?.url&&freshness(profile,signature)===true){if(existing?.error){jobs.delete(profile.id);onChange({profileId:profile.id});}return Promise.resolve();}
             const previous=jobs.get(profile.id);if(previous?.busy&&previous.signature===signature)return previous.promise;
             if(!ifChanged)request.seed=Math.floor(Math.random()*4294967296);
-            const job={busy:true,status:'排队中',signature};jobs.set(profile.id,job);onChange();onQueued();
+            const job={busy:true,status:'排队中',signature};jobs.set(profile.id,job);onChange({profileId:profile.id});onQueued();
             const valid=()=>{if(!current(profile.id,signature)||jobs.get(profile.id)!==job)throw Error('配置已变化，例图已取消');return true;};
             job.promise=enqueue(async()=>{
                 if(!current(profile.id,signature)||jobs.get(profile.id)!==job)return;
-                const data=await generate(request,{...scope,onStatus:status=>{job.status=status;onChange();}},valid);
+                const data=await generate(request,{...scope,onStatus:status=>{job.status=status;onChange({profileId:profile.id});}},valid);
                 const url=await saveImage(data,scope);
                 const target=current(profile.id,signature);if(!target||jobs.get(profile.id)!==job)return;
-                target.preview={url,signature,request:structuredClone(request),created:Date.now()};onChange();
-                try{await persist({profileId:profile.id});}catch(error){throw Error('例图已生成，但配置保存未完成，请再次保存配置：'+error.message);}
-            }).catch(error=>{job.error=String(error.message||error);onError(error);}).finally(()=>{job.busy=false;onChange();});
+                job.unsaved=true;target.preview={url,signature,request:structuredClone(request),created:Date.now()};onChange({profileId:profile.id});
+                try{await persist({profileId:profile.id});job.unsaved=false;onChange({profileId:profile.id});}catch(error){throw Error('例图已生成，保存尚未确认；请查证例图保存：'+error.message);}
+            }).catch(error=>{job.error=String(error.message||error);if(isCurrent()&&jobs.get(profile.id)===job)onError(error);}).finally(()=>{job.busy=false;onChange({profileId:profile.id});});
             return job.promise;
         },
     };

@@ -856,8 +856,8 @@
     margin: 0;
     padding: 10px;
     max-width: 100%;
-    max-height: 45dvh;
-    overflow: auto;
+    max-height: none;
+    overflow: visible;
     white-space: pre-wrap !important;
     overflow-wrap: anywhere;
     word-break: break-word;
@@ -2435,3 +2435,13 @@ img[data-miao-export-state=loading] {visibility: hidden;}
 .miao-choice-feedback[hidden],.miao-choice-feedback button[hidden]{display:none}.miao-choice-feedback{grid-column:1/-1}
 
 .miao-size-options[hidden]{display:none}
+
+/* Prompt viewing has one scroll surface; text and translations grow naturally. */
+.miao-prompt-dialog { display:flex!important; flex-direction:column; min-height:0; max-height:calc(var(--miao-vv-height,100dvh) - 24px)!important; overflow:hidden!important; }
+.miao-prompt-dialog>.popup-body { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+.miao-prompt-dialog>.popup-content,.miao-prompt-dialog>.popup-body>.popup-content { flex:1 1 auto; min-height:0; overflow-y:auto!important; overflow-x:hidden; touch-action:pan-y; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; padding-bottom:max(12px,env(safe-area-inset-bottom)); }
+.miao-prompt-dialog :is(.popup-controls,.miao-page-controls) { flex:none; padding-bottom:max(8px,env(safe-area-inset-bottom)); }
+.miao-prompt-view { flex:none; }
+.miao-settings p.miao-muted:empty,.miao-prompt-editor p.miao-muted:empty,.miao-favorites p.miao-muted:empty { display:none; }
+
+.miao-page-popup.miao-prompt-dialog { max-height:100%!important; }

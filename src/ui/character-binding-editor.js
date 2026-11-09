@@ -4,7 +4,7 @@ import {editBinding} from '../profiles/character-bindings.js';
 import {bindingNode as n,bindingAction as action,bindingIcon as icon,bindingAvatar,bindingField as field,bindingSwitch,bindingViewport} from './character-binding-controls.js';
 export function createBindingOwnerEditor({management,route,draft,onChat,onError,onState=()=>{}}){
     const root=n('section',undefined,'miao-binding-owner'),status=n('p','正在加载资料…','miao-muted'),feedback=n('div'),list=bindingViewport('绑定角色'),forms=n('div'),footer=n('footer',undefined,'miao-binding-footer');
-    status.setAttribute('aria-live','polite');root.append(status);let entry,disposed=false,editing=null,pending=null,loaded=false,statusTimer;
+    status.setAttribute('aria-live','polite');root.append(status);let entry,disposed=false,editing=null,pending=null,loaded=false;
     const scope=management.host.scope(),active=()=>!disposed&&management.host.scope()===scope;
     const dirty=()=>{draft.dirty=!!draft.form&&draft.form.changed!==false||!!draft.operation||Object.keys(draft.defaults||{}).length>0;onState();};
     function fail(error){if(!active())return;status.textContent=['unknown','unconfirmed'].includes(error.saveState)?'保存结果待确认；请先查证。':error.message;feedback.replaceChildren();
@@ -21,12 +21,12 @@ export function createBindingOwnerEditor({management,route,draft,onChat,onError,
     }
     function lock(value){forms.inert=value&&!!draft.operation?.form&&!draft.operation?.auto;root.setAttribute('aria-busy',String(value));for(const el of root.querySelectorAll('button,input[type=checkbox]')){el.dataset.saveBlocked=String(!!draft.operation&&list.contains(el));el.disabled=value||el.dataset.saveBlocked==='true';}onState();}
     async function write(archive){const result=await management.save({...entry,hash:draft.baseHash??entry.hash},archive);entry=result;draft.baseHash=draft.form?result.hash:null;return result;}
-    function operate(operation){if(pending)return pending;if(draft.operation&&draft.operation!==operation)return Promise.reject(Error('请先查证未确认的保存'));if(!active())return Promise.reject(Error('账户已改变'));draft.operation=operation;dirty();lock(true);status.textContent='正在保存…';
+    function operate(operation){if(pending)return pending;if(draft.operation&&draft.operation!==operation)return Promise.reject(Error('请先查证未确认的保存'));if(!active())return Promise.reject(Error('账户已改变'));draft.operation=operation;dirty();lock(true);
         pending=(async()=>{
             try{
                 // Retry the exact candidate with its original baseline. Storage verifies read-back before rewriting.
                 await write(operation.archive);if(management.host.scope()!==scope)throw Error('账户已改变');
-                draft.operation=null;formSave.recover();if(operation.form&&!operation.auto){draft.form=null;draft.baseHash=null;}else if(operation.auto&&draft.form){const current={...draft.form};delete current.changed;const submitted={...operation.formSnapshot};delete submitted.changed;if(JSON.stringify(current)===JSON.stringify(submitted))draft.form.changed=false;}if(operation.defaults)draft.defaults={};dirty();if(active()){feedback.replaceChildren();status.textContent='已保存并读回确认';clearTimeout(statusTimer);statusTimer=setTimeout(()=>{if(active()&&status.textContent==='已保存并读回确认')status.textContent='';},1500);if(operation.form&&!operation.auto)paint();else paintRows();}
+                draft.operation=null;formSave.recover();if(operation.form&&!operation.auto){draft.form=null;draft.baseHash=null;}else if(operation.auto&&draft.form){const current={...draft.form};delete current.changed;const submitted={...operation.formSnapshot};delete submitted.changed;if(JSON.stringify(current)===JSON.stringify(submitted))draft.form.changed=false;}if(operation.defaults)draft.defaults={};dirty();if(active()){feedback.replaceChildren();status.textContent='';if(operation.form&&!operation.auto)paint();else paintRows();}
             }catch(error){if(error.baseEntry)entry=error.baseEntry;if(error.baseEntry&&operation.archive.schemaVersion!==entry.archive.schemaVersion)operation.archive={...operation.archive,schemaVersion:entry.archive.schemaVersion,owner:entry.archive.owner,revision:entry.archive.revision};operation.errorState=error.saveState||'failed';dirty();throw error;}
             finally{pending=null;if(active())lock(false);}
         })();onState();return pending;
@@ -42,7 +42,7 @@ export function createBindingOwnerEditor({management,route,draft,onChat,onError,
     async function save(auto=false){await flushPending();if(draft.operation){await retry();return;}if(draft.form&&draft.form.changed!==false){const d=structuredClone(draft.form),next=editBinding(entry.archive,{name:d.name.trim(),aliases:d.aliases.split(/[、\n,，;；]/).map(v=>v.trim()).filter(Boolean),positive:d.positive.trim(),negative:d.negative.trim()},d.uuid,{newUuid:d.newUuid});await operate({archive:next,form:true,auto,formSnapshot:d});}
         if(Object.keys(draft.defaults||{}).length){const next=structuredClone(entry.archive);for(const b of next.bindings)if(typeof draft.defaults[b.uuid]==='boolean'&&b.defaultEnabled!==draft.defaults[b.uuid]){b.defaultEnabled=draft.defaults[b.uuid];b.revision++;}await operate({archive:next,defaults:true});}
     }
-    const formSave=createPromptAutosave({run:async()=>{if(draft.form?.uuid&&draft.form.changed!==false)await save(true);},onError:error=>{status.textContent=error.message;if(draft.operation)fail(error);}});
+    const formSave=createPromptAutosave({run:async()=>{if(draft.form?.uuid&&draft.form.changed!==false)await save(true);},onError:error=>{if(!active())return;status.textContent=error.message;if(draft.operation)fail(error);}});
     async function flushPending(){if(pending)await pending;}
     function paintRows(){if(!active())return;const focus=document.activeElement?.getAttribute('aria-label');route.bindingScroll=list.scrollTop;list.replaceChildren();const archived=entry.archive.bindings.filter(b=>b.archived),details=n('details'),summary=n('summary',`已归档的角色（${archived.length}）`);details.open=!!route.archivedOpen;details.ontoggle=()=>{route.archivedOpen=details.open;};details.append(summary);
         for(const binding of entry.archive.bindings){const row=n('div',undefined,'miao-binding-row'),actions=n('div',undefined,'miao-binding-row-actions');row.dataset.bindingUuid=binding.uuid;row.append(n('strong',`${binding.shortId} · ${binding.name}`),actions);
@@ -59,5 +59,5 @@ export function createBindingOwnerEditor({management,route,draft,onChat,onError,
         if(draft.form)form(entry.archive.bindings.find(b=>b.uuid===draft.form.uuid),{focus:false});if(draft.operation){status.textContent='有未确认的保存，请重试或查证';action(feedback,'重试／查证保存',retry,fail);}lock(false);
     }
     void management.open(route.target,{fresh:true}).then(result=>{if(!active())return;entry=result;loaded=true;status.textContent=result.legacyChanged?'旧版 v1 资料有新变更，写入已停止；请核对完整宿主备份。':'';paint();onState();}).catch(error=>{if(active()){fail(error);action(root,'重试读取',()=>management.open(route.target,{fresh:true}).then(result=>{entry=result;loaded=true;paint();}),fail);}});
-    return {element:root,save:async()=>{try{await save();}catch(error){fail(error);throw error;}},flush:async()=>{await formSave.flush();await flushPending();},flushPending,canSave:()=>loaded&&(!!draft.form||!!draft.operation||Object.keys(draft.defaults||{}).length>0),hasPending:()=>!!pending,hasFailure:()=>!!draft.operation,dispose(){formSave.dispose();disposed=true;clearTimeout(statusTimer);editing=null;}};
+    return {element:root,save:async()=>{try{await save();}catch(error){fail(error);throw error;}},flush:async()=>{await formSave.flush();await flushPending();},flushPending,canSave:()=>loaded&&(!!draft.form||!!draft.operation||Object.keys(draft.defaults||{}).length>0),hasPending:()=>!!pending,hasFailure:()=>!!draft.operation,dispose(){formSave.dispose();disposed=true;editing=null;}};
 }

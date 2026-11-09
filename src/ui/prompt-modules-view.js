@@ -19,7 +19,7 @@ export function createPromptModulesView({settings,save,onError,parent,expanded=n
     function choiceFeedback(field,container){const box=n('div',undefined,'miao-choice-feedback'),status=n('p','','miao-muted'),retry=n('button','重试保存','miao-button');status.setAttribute('role','status');retry.type='button';retry.onclick=()=>choose(field,null,{retry:true});box.append(status,retry);container.append(box);feedback.set(field,{box,status,retry});}
     const icon=(label,glyph)=>{const b=n('button',undefined,'miao-tree-icon');b.type='button';b.setAttribute('aria-label',label);b.title=label;setUIIcon(b,glyph);return b;};
     function paint(){
-        if(disposed)return;for(const [field,{box,status,retry}] of feedback){const state=choices[field].state();box.hidden=!state;status.textContent=state?.error?.message??(state?.pending?'选择保存中…':'');retry.hidden=!state?.error;retry.textContent=state?.pending?'检查保存结果':state?.error?.stage==='publish'?'重试提示词更新':'重试保存';}
+        if(disposed)return;for(const [field,{box,status,retry}] of feedback){const state=choices[field].state();box.hidden=!state?.error;status.textContent=state?.error?.message??'';retry.hidden=!state?.error;retry.textContent=state?.pending?'检查保存结果':state?.error?.stage==='publish'?'重试提示词更新':'重试保存';}
         for(const state of states){
             const {item,branch,toggle,radio,expand,children,keywords,preview}=state,config=settings.promptConfig,active=effectiveEnabled(config,item.nodeId);
             branch.hidden=!!item.parentId&&!effectiveEnabled(config,item.parentId);
@@ -55,5 +55,5 @@ export function createPromptModulesView({settings,save,onError,parent,expanded=n
     treeRoots.forEach(id=>append(id,root));paint();
     root.commit=async()=>{for(;;){while(jobs.size)await Promise.allSettled([...jobs]);if(genericFailure)throw genericFailure;for(const model of Object.values(choices)){const error=model.state()?.error;if(error)throw error;}for(const state of states)await state.keywords?.commit();if(!jobs.size)return;}};
     root.refresh=(options={})=>{for(const model of Object.values(choices))model.refresh(options);if(options.published&&genericFailure?.stage==='publish')genericFailure=null;paint();};
-    root.hasPending=()=>!!jobs.size||Object.values(choices).some(model=>model.hasPending());root.hasFailure=()=>!!genericFailure||Object.values(choices).some(model=>model.hasFailure());root.dispose=()=>{disposed=true;};return root;
+    root.hasPending=()=>!!jobs.size||Object.values(choices).some(model=>model.hasPending());root.hasFailure=()=>!!genericFailure||Object.values(choices).some(model=>model.hasFailure());root.dispose=()=>{disposed=true;for(const state of states)state.keywords?.dispose();};return root;
 }
